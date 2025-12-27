@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import draggable from 'vuedraggable'
 import HostEditor from './components/HostEditor.vue'
 
 const hosts = ref([])
@@ -8,6 +9,9 @@ const isEditorOpen = ref(false)
 const editingHost = ref(null)
 const loading = ref(false)
 const error = ref('')
+
+// 是否启用拖拽（搜索时禁用）
+const isDragEnabled = computed(() => !searchQuery.value)
 
 const filteredHosts = computed(() => {
   let result = hosts.value
@@ -20,8 +24,7 @@ const filteredHosts = computed(() => {
       (h.Remark && h.Remark.toLowerCase().includes(q))
     )
   }
-  // 倒序显示，使文件末尾的配置显示在最前面
-  return result.slice().reverse()
+  return result
 })
 
 async function loadHosts() {
@@ -71,6 +74,16 @@ async function handleDelete(hostName) {
   }
 }
 
+// 拖拽结束后保存新顺序
+async function handleDragEnd() {
+  try {
+    const hostNames = hosts.value.map(h => h.Host)
+    await window.sshApi.reorderHosts(hostNames)
+  } catch (e) {
+    console.error('Failed to save order:', e)
+  }
+}
+
 onMounted(loadHosts)
 </script>
 
@@ -108,59 +121,93 @@ onMounted(loadHosts)
         <p class="text-red-600 font-medium">{{ error }}</p>
       </div>
       
-      <div v-else class="grid gap-5 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-        <div v-for="host in filteredHosts" :key="host.Host" class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition group flex flex-col">
-          <div class="flex justify-between items-start mb-4 border-b border-gray-50">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
-                <div class="w-2 h-2 rounded-full bg-green-400 flex-shrink-0"></div>
-                <h3 class="text-lg font-bold text-gray-800 truncate" :title="host.Host">{{ host.Host }}</h3>
+      <draggable
+        v-else
+        v-model="hosts"
+        item-key="Host"
+        handle=".drag-handle"
+        :disabled="!isDragEnabled"
+        ghost-class="opacity-40"
+        chosen-class="shadow-lg"
+        drag-class="shadow-2xl"
+        animation="200"
+        class="grid gap-5 grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
+        @end="handleDragEnd"
+      >
+        <template #item="{ element: host }">
+          <div
+            v-show="!searchQuery || filteredHosts.some(h => h.Host === host.Host)"
+            class="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition group flex"
+          >
+            <!-- 拖拽手柄 -->
+            <div
+              v-if="isDragEnabled"
+              class="drag-handle w-6 shrink-0 flex items-center justify-center rounded-l-xl bg-gray-50 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing hover:bg-gray-100"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="9" cy="5" r="1.5" />
+                <circle cx="15" cy="5" r="1.5" />
+                <circle cx="9" cy="12" r="1.5" />
+                <circle cx="15" cy="12" r="1.5" />
+                <circle cx="9" cy="19" r="1.5" />
+                <circle cx="15" cy="19" r="1.5" />
+              </svg>
+            </div>
+            
+            <div class="flex-1 p-5 flex flex-col">
+            <div class="flex justify-between items-start mb-4 border-b border-gray-50">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <div class="w-2 h-2 rounded-full bg-green-400 shrink-0"></div>
+                  <h3 class="text-lg font-bold text-gray-800 truncate" :title="host.Host">{{ host.Host }}</h3>
+                </div>
+                <p v-if="host.Remark" class="text-xs text-gray-400 mt-1 ml-4 truncate" :title="host.Remark">{{ host.Remark }}</p>
               </div>
-              <p v-if="host.Remark" class="text-xs text-gray-400 mt-1 ml-4 truncate" :title="host.Remark">{{ host.Remark }}</p>
+              <div class="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <button @click="openEdit(host)" class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition" title="Edit">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </button>
+                <button @click="handleDelete(host.Host)" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition" title="Delete">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
             </div>
-            <div class="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-              <button @click="openEdit(host)" class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition" title="Edit">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-              </button>
-              <button @click="handleDelete(host.Host)" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition" title="Delete">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
+            
+            <div class="text-sm text-gray-600 space-y-2.5 grow">
+              <div v-if="host.HostName" class="flex items-start">
+                <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">HostName</span> 
+                <span class="font-mono text-gray-800 bg-gray-50 px-1.5 py-0.5 rounded text-xs select-all">{{ host.HostName }}</span>
+              </div>
+              <div v-if="host.User" class="flex items-center">
+                <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">User</span> 
+                <span class="text-gray-800 font-medium">{{ host.User }}</span>
+              </div>
+              <div v-if="host.Port" class="flex items-center">
+                <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">Port</span> 
+                <span class="text-gray-800">{{ host.Port }}</span>
+              </div>
+              <div v-if="host.IdentityFile" class="flex items-center">
+                <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">Identity</span> 
+                <span class="truncate text-gray-500 text-xs" :title="host.IdentityFile">{{ host.IdentityFile }}</span>
+              </div>
+            </div>
             </div>
           </div>
-          
-          <div class="text-sm text-gray-600 space-y-2.5 flex-grow">
-            <div v-if="host.HostName" class="flex items-start">
-              <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">HostName</span> 
-              <span class="font-mono text-gray-800 bg-gray-50 px-1.5 py-0.5 rounded text-xs select-all">{{ host.HostName }}</span>
-            </div>
-            <div v-if="host.User" class="flex items-center">
-              <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">User</span> 
-              <span class="text-gray-800 font-medium">{{ host.User }}</span>
-            </div>
-            <div v-if="host.Port" class="flex items-center">
-              <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">Port</span> 
-              <span class="text-gray-800">{{ host.Port }}</span>
-            </div>
-            <div v-if="host.IdentityFile" class="flex items-center">
-              <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">Identity</span> 
-              <span class="truncate text-gray-500 text-xs" :title="host.IdentityFile">{{ host.IdentityFile }}</span>
-            </div>
-          </div>
+        </template>
+      </draggable>
+      
+      <div v-if="filteredHosts.length === 0 && !loading && !error" class="flex flex-col items-center justify-center py-16 text-gray-500 bg-white rounded-xl border-2 border-dashed border-gray-200">
+        <div class="bg-gray-50 p-4 rounded-full mb-3">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+          </svg>
         </div>
-        
-        <div v-if="filteredHosts.length === 0 && !loading && !error" class="col-span-full flex flex-col items-center justify-center py-16 text-gray-500 bg-white rounded-xl border-2 border-dashed border-gray-200">
-          <div class="bg-gray-50 p-4 rounded-full mb-3">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-            </svg>
-          </div>
-          <p class="font-medium text-lg">No hosts found</p>
-          <p class="text-sm text-gray-400 mt-1">Try adjusting your search or add a new host.</p>
-        </div>
+        <p class="font-medium text-lg">No hosts found</p>
+        <p class="text-sm text-gray-400 mt-1">Try adjusting your search or add a new host.</p>
       </div>
     </div>
 

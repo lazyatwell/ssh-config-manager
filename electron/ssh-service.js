@@ -152,3 +152,43 @@ export async function deleteHost(host) {
 
   return true
 }
+
+// 重新排序 hosts，按照传入的 hostNames 数组顺序重写配置文件
+export async function reorderHosts(hostNames) {
+  await ensureConfigExists()
+  const content = await fs.readFile(CONFIG_PATH, 'utf8')
+  const config = parseConfig(content)
+
+  // 提取所有 Host 块
+  const hostSections = []
+  const otherSections = []
+
+  for (const section of config) {
+    if (section.param && section.param.toLowerCase() === 'host') {
+      hostSections.push(section)
+    } else {
+      otherSections.push(section)
+    }
+  }
+
+  // 按 hostNames 数组的顺序重新排列
+  const reorderedSections = []
+  for (const hostName of hostNames) {
+    const section = hostSections.find(s => s.value === hostName)
+    if (section) {
+      reorderedSections.push(section)
+    }
+  }
+
+  // 合并非 Host 块和重排后的 Host 块
+  const newConfig = SSHConfig.parse('')
+  for (const section of otherSections) {
+    newConfig.push(section)
+  }
+  for (const section of reorderedSections) {
+    newConfig.push(section)
+  }
+
+  await fs.writeFile(CONFIG_PATH, SSHConfig.stringify(newConfig), 'utf8')
+  return true
+}

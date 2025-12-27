@@ -43,6 +43,7 @@ app.whenReady().then(() => {
   ipcMain.handle('ssh:get-all', () => sshService.getAll())
   ipcMain.handle('ssh:save-host', (_, data) => sshService.saveHost(data))
   ipcMain.handle('ssh:delete-host', (_, host) => sshService.deleteHost(host))
+  ipcMain.handle('ssh:reorder-hosts', (_, hostNames) => sshService.reorderHosts(hostNames))
   
   createWindow()
 
