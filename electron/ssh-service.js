@@ -192,3 +192,50 @@ export async function reorderHosts(hostNames) {
   await fs.writeFile(CONFIG_PATH, SSHConfig.stringify(newConfig), 'utf8')
   return true
 }
+
+// 复制 host 配置，在原配置后插入新配置，Host 名称为原名称 + "copy"
+export async function copyHost(hostName) {
+  await ensureConfigExists()
+  const content = await fs.readFile(CONFIG_PATH, 'utf8')
+  const config = parseConfig(content)
+
+  // 找到原配置的索引
+  const sectionIndex = config.findIndex(
+    entry => entry.param && entry.param.toLowerCase() === 'host' && entry.value === hostName
+  )
+
+  if (sectionIndex === -1) {
+    throw new Error(`Host "${hostName}" not found`)
+  }
+
+  const originalSection = config[sectionIndex]
+
+  // 提取原配置的属性
+  const props = {}
+  if (originalSection.config) {
+    for (const line of originalSection.config) {
+      if (line.type === TYPE_DIRECTIVE) {
+        props[line.param] = line.value
+      }
+    }
+  }
+
+  // 构建新配置块
+  const newHostName = hostName + '-copy'
+  const newLines = [`Host ${newHostName}`]
+  const propOrder = ['HostName', 'User', 'Port', 'IdentityFile', 'Remark']
+  propOrder.forEach(prop => {
+    if (props[prop]) {
+      newLines.push(`  ${prop} ${props[prop]}`)
+    }
+  })
+
+  // 解析新配置块
+  const newConfigBlock = SSHConfig.parse(newLines.join('\n'))
+
+  // 在原配置后面插入新配置
+  config.splice(sectionIndex + 1, 0, newConfigBlock[0])
+
+  await fs.writeFile(CONFIG_PATH, SSHConfig.stringify(config), 'utf8')
+  return { newHostName }
+}

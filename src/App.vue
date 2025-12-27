@@ -74,6 +74,16 @@ async function handleDelete(hostName) {
   }
 }
 
+async function handleCopy(hostName) {
+  if (!confirm(`复制配置 "${hostName}"？`)) return
+  try {
+    await window.sshApi.copyHost(hostName)
+    await loadHosts()
+  } catch (e) {
+    alert('Failed to copy: ' + e.message)
+  }
+}
+
 // 拖拽结束后保存新顺序
 async function handleDragEnd() {
   try {
@@ -167,6 +177,11 @@ onMounted(loadHosts)
                 <button @click="openEdit(host)" class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition" title="Edit">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </button>
+                <button @click="handleCopy(host.Host)" class="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-md transition" title="Copy">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 </button>
                 <button @click="handleDelete(host.Host)" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition" title="Delete">
