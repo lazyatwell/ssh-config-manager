@@ -16,6 +16,7 @@ const updateInfo = ref({})
 const downloadProgress = ref(0)
 const currentVersion = ref('')
 const showUpdateBanner = ref(false)
+let unsubscribeUpdateStatus = null
 
 // 是否启用拖拽（搜索时禁用）
 const isDragEnabled = computed(() => !searchQuery.value)
@@ -124,7 +125,10 @@ function handleUpdateStatus(data) {
       console.error('Update error:', data.message)
       break
     case 'not-available':
-      // 静默处理，无需提示
+      console.warn('No update available')
+      break
+    default:
+      console.log('Update status:', data.status)
       break
   }
 }
@@ -158,15 +162,16 @@ onMounted(async () => {
   // 获取当前版本
   if (window.updaterApi) {
     currentVersion.value = await window.updaterApi.getVersion()
-    // 监听更新状态
-    window.updaterApi.onUpdateStatus(handleUpdateStatus)
+    // 监听更新状态，保存取消订阅函数
+    unsubscribeUpdateStatus = window.updaterApi.onUpdateStatus(handleUpdateStatus)
   }
 })
 
 onUnmounted(() => {
-  // 清理监听器
-  if (window.updaterApi) {
-    window.updaterApi.removeUpdateStatusListener()
+  // 清理监听器 - 只移除当前组件注册的监听器
+  if (unsubscribeUpdateStatus) {
+    unsubscribeUpdateStatus()
+    unsubscribeUpdateStatus = null
   }
 })
 </script>
@@ -225,7 +230,7 @@ onUnmounted(() => {
           <h1 class="text-3xl font-bold text-gray-900 tracking-tight">SSH Config Manager</h1>
           <p class="text-gray-500 text-sm mt-1">
             Manage your local SSH configurations easily
-            <span v-if="currentVersion" class="ml-2 text-xs text-gray-400">v{{ currentVersion }}</span>
+            <span v-if="currentVersion" @dblclick="checkForUpdates" class="ml-2 text-xs text-gray-400">v{{ currentVersion }}</span>
           </p>
         </div>
         <button @click="openAdd" class="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-5 py-2.5 rounded-lg shadow-sm hover:shadow flex items-center gap-2 transition font-medium">

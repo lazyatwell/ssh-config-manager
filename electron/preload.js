@@ -17,12 +17,13 @@ contextBridge.exposeInMainWorld('updaterApi', {
   installUpdate: () => ipcRenderer.invoke('updater:install'),
   // 获取当前版本
   getVersion: () => ipcRenderer.invoke('updater:get-version'),
-  // 监听更新状态
+  // 监听更新状态，返回取消订阅函数
   onUpdateStatus: (callback) => {
-    ipcRenderer.on('update-status', (_, data) => callback(data))
-  },
-  // 移除更新状态监听
-  removeUpdateStatusListener: () => {
-    ipcRenderer.removeAllListeners('update-status')
+    const listener = (_, data) => callback(data)
+    ipcRenderer.on('update-status', listener)
+    // 返回取消订阅函数，只移除当前监听器
+    return () => {
+      ipcRenderer.removeListener('update-status', listener)
+    }
   }
 })

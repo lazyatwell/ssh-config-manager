@@ -1,11 +1,12 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { autoUpdater } from 'electron-updater'
+import electronUpdater from 'electron-updater'
 import * as sshService from './ssh-service.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.join(__dirname, '..')
+const { autoUpdater } = electronUpdater
 
 // 自动更新配置
 autoUpdater.autoDownload = false // 不自动下载，让用户确认
@@ -90,7 +91,7 @@ function createWindow() {
   
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
-    // mainWindow.webContents.openDevTools()
+    mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(PROJECT_ROOT, 'dist', 'index.html'))
   }
