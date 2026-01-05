@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import draggable from 'vuedraggable'
 import HostEditor from './components/HostEditor.vue'
 
@@ -9,6 +9,13 @@ const isEditorOpen = ref(false)
 const editingHost = ref(null)
 const loading = ref(false)
 const error = ref('')
+
+// 自动更新相关状态
+const updateStatus = ref('idle') // idle, checking, available, downloading, downloaded, not-available, error
+const updateInfo = ref({})
+const downloadProgress = ref(0)
+const currentVersion = ref('')
+const showUpdateBanner = ref(false)
 
 // 是否启用拖拽（搜索时禁用）
 const isDragEnabled = computed(() => !searchQuery.value)
@@ -94,16 +101,132 @@ async function handleDragEnd() {
   }
 }
 
-onMounted(loadHosts)
+// 自动更新相关函数
+function handleUpdateStatus(data) {
+  updateStatus.value = data.status
+  
+  switch (data.status) {
+    case 'available':
+      updateInfo.value = {
+        version: data.version,
+        releaseDate: data.releaseDate,
+        releaseNotes: data.releaseNotes
+      }
+      showUpdateBanner.value = true
+      break
+    case 'downloading':
+      downloadProgress.value = Math.round(data.percent || 0)
+      break
+    case 'downloaded':
+      updateInfo.value.version = data.version
+      break
+    case 'error':
+      console.error('Update error:', data.message)
+      break
+    case 'not-available':
+      // 静默处理，无需提示
+      break
+  }
+}
+
+async function checkForUpdates() {
+  if (window.updaterApi) {
+    updateStatus.value = 'checking'
+    await window.updaterApi.checkForUpdates()
+  }
+}
+
+async function downloadUpdate() {
+  if (window.updaterApi) {
+    await window.updaterApi.downloadUpdate()
+  }
+}
+
+function installUpdate() {
+  if (window.updaterApi) {
+    window.updaterApi.installUpdate()
+  }
+}
+
+function dismissUpdateBanner() {
+  showUpdateBanner.value = false
+}
+
+onMounted(async () => {
+  loadHosts()
+  
+  // 获取当前版本
+  if (window.updaterApi) {
+    currentVersion.value = await window.updaterApi.getVersion()
+    // 监听更新状态
+    window.updaterApi.onUpdateStatus(handleUpdateStatus)
+  }
+})
+
+onUnmounted(() => {
+  // 清理监听器
+  if (window.updaterApi) {
+    window.updaterApi.removeUpdateStatusListener()
+  }
+})
 </script>
 
 <template>
   <div class="min-h-screen bg-gray-50 text-gray-900 font-sans selection:bg-blue-100 selection:text-blue-900">
+    <!-- 更新提示横幅 -->
+    <Transition name="slide-down">
+      <div v-if="showUpdateBanner" class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+        <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span class="text-sm">
+              <template v-if="updateStatus === 'available'">
+                新版本 <strong>v{{ updateInfo.version }}</strong> 可用！
+              </template>
+              <template v-else-if="updateStatus === 'downloading'">
+                正在下载更新... {{ downloadProgress }}%
+              </template>
+              <template v-else-if="updateStatus === 'downloaded'">
+                更新已下载完成，重启应用以完成安装
+              </template>
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <template v-if="updateStatus === 'available'">
+              <button @click="downloadUpdate" class="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-md text-sm font-medium transition">
+                下载更新
+              </button>
+            </template>
+            <template v-else-if="updateStatus === 'downloading'">
+              <div class="w-32 h-2 bg-white/20 rounded-full overflow-hidden">
+                <div class="h-full bg-white transition-all duration-300" :style="{ width: downloadProgress + '%' }"></div>
+              </div>
+            </template>
+            <template v-else-if="updateStatus === 'downloaded'">
+              <button @click="installUpdate" class="bg-white text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-md text-sm font-medium transition">
+                立即重启
+              </button>
+            </template>
+            <button @click="dismissUpdateBanner" class="p-1 hover:bg-white/20 rounded transition" title="稍后提醒">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <div class="max-w-5xl mx-auto p-6 md:p-10">
       <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 class="text-3xl font-bold text-gray-900 tracking-tight">SSH Config Manager</h1>
-          <p class="text-gray-500 text-sm mt-1">Manage your local SSH configurations easily</p>
+          <p class="text-gray-500 text-sm mt-1">
+            Manage your local SSH configurations easily
+            <span v-if="currentVersion" class="ml-2 text-xs text-gray-400">v{{ currentVersion }}</span>
+          </p>
         </div>
         <button @click="openAdd" class="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white px-5 py-2.5 rounded-lg shadow-sm hover:shadow flex items-center gap-2 transition font-medium">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -229,3 +352,15 @@ onMounted(loadHosts)
     <HostEditor :is-open="isEditorOpen" :initial-data="editingHost" @save="handleSave" @close="isEditorOpen = false" />
   </div>
 </template>
+
+<style scoped>
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: all 0.3s ease;
+}
+.slide-down-enter-from,
+.slide-down-leave-to {
+  transform: translateY(-100%);
+  opacity: 0;
+}
+</style>

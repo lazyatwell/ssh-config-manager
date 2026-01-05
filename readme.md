@@ -86,10 +86,24 @@ This will simultaneously start the Vite development server and the Electron appl
 ### Build for Production
 
 ```bash
+# Generate icon
+pnpm icon
+
+# Build
 pnpm build
+
+# Package
+# Windows, need administrator privileges to sign
+pnpm pack:win
+# Windows, portable version
+pnpm pack:win:portable
+# macOS
+pnpm pack:mac
+# Linux
+pnpm pack:linux
 ```
 
-Build artifacts will be output to the `dist` directory.
+Build artifacts will be output to the `release` directory.
 
 ## 🛠️ Tech Stack
 

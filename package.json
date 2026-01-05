@@ -3,23 +3,101 @@
   "version": "1.0.0",
   "description": "SSH Config Manager",
   "license": "MIT",
+  "author": "atwell",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
-    "build": "vite build"
+    "icon": "electron-icon-builder --input=./electron/assets/icon.jpeg --output=build --flatten",
+    "build": "vite build",
+    "pack:test": "electron-builder --dir",
+    "pack:win": "electron-builder --win",
+    "pack:win:portable": "electron-builder --win portable",
+    "pack:mac": "electron-builder --mac",
+    "pack:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.ssh-config-manager.app",
+    "productName": "SSH Config Manager",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "icon": "build/icons/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "mac": {
+      "icon": "build/icons/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "icon": "build/icons",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${os}-${arch}-portable.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "lazyatwell",
+        "repo": "ssh-config-manager"
+      }
+    ]
   },
   "dependencies": {
-    "electron": "^39.2.3",
+    "electron-updater": "^6.3.9",
     "ssh-config": "^5.0.4",
     "tailwindcss": "^4.0.0",
     "vue": "^3.5.13",
     "vuedraggable": "^4.1.0"
   },
   "devDependencies": {
+    "electron": "^39.2.3",
     "@tailwindcss/vite": "^4.0.0",
     "@vitejs/plugin-vue": "^5.2.1",
     "concurrently": "^9.1.0",
+    "electron-builder": "^26.0.12",
+    "electron-icon-builder": "^2.0.1",
     "vite": "^7.2.4",
     "wait-on": "^8.0.1"
   }

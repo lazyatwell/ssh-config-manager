@@ -86,10 +86,25 @@ pnpm dev
 ### 构建生产版本
 
 ```bash
+# 生成图标
+pnpm icon
+
+# 构建
 pnpm build
+
+# 打包
+
+# Windows, 需要管理员权限运行，进行签名
+pnpm pack:win
+# Windows, 便携版
+pnpm pack:win:portable
+# macOS
+pnpm pack:mac
+# Linux
+pnpm pack:linux
 ```
 
-构建产物将输出到 `dist` 目录。
+构建产物将输出到 `release` 目录。
 
 ## 🛠️ 技术栈
 
