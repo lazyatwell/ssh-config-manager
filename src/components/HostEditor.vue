@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, nextTick } from 'vue'
 
 const props = defineProps({
   isOpen: Boolean,
@@ -18,6 +18,9 @@ const form = ref({
 })
 
 const errors = ref({})
+
+// Host 输入框引用，用于自动聚焦
+const hostInputRef = ref(null)
 
 // 是否为编辑模式
 const isEditMode = computed(() => !!props.initialData)
@@ -139,6 +142,12 @@ watch(() => props.isOpen, (isOpen) => {
         IdentityFile: ''
       }
     }
+    // 等待 DOM 更新和过渡动画完成后聚焦到第一个输入框
+    nextTick(() => {
+      setTimeout(() => {
+        hostInputRef.value?.focus()
+      }, 50)
+    })
   }
 }, { immediate: true })
 
@@ -192,7 +201,7 @@ function inputClass(field) {
             Host (Alias) <span class="text-red-400">*</span>
           </label>
           <div class="relative group">
-            <input v-model="form.Host" type="text" maxlength="50" :class="inputClass('Host')" placeholder="myserver" />
+            <input ref="hostInputRef" v-model="form.Host" type="text" maxlength="50" :class="inputClass('Host')" placeholder="myserver" />
             <button
               v-show="form.Host"
               type="button"

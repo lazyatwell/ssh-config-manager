@@ -2,6 +2,8 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import draggable from 'vuedraggable'
 import HostEditor from './components/HostEditor.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
+import AlertDialog from './components/AlertDialog.vue'
 
 const hosts = ref([])
 const searchQuery = ref('')
@@ -9,6 +11,23 @@ const isEditorOpen = ref(false)
 const editingHost = ref(null)
 const loading = ref(false)
 const error = ref('')
+
+// 确认对话框状态
+const confirmDialog = ref({
+  isOpen: false,
+  title: '',
+  message: '',
+  confirmType: 'primary',
+  onConfirm: null
+})
+
+// 提示对话框状态
+const alertDialog = ref({
+  isOpen: false,
+  title: '',
+  message: '',
+  type: 'error'
+})
 
 // 自动更新相关状态
 const updateStatus = ref('idle') // idle, checking, available, downloading, downloaded, not-available, error
@@ -68,28 +87,68 @@ async function handleSave(data) {
     isEditorOpen.value = false
     await loadHosts()
   } catch (e) {
-    alert('Failed to save: ' + e.message)
+    showAlert('保存失败', e.message)
   }
 }
 
 async function handleDelete(hostName) {
-  if (!confirm(`Delete host "${hostName}"?`)) return
-  try {
-    await window.sshApi.deleteHost(hostName)
-    await loadHosts()
-  } catch (e) {
-    alert('Failed to delete: ' + e.message)
+  confirmDialog.value = {
+    isOpen: true,
+    title: '删除确认',
+    message: `确定要删除配置 "${hostName}" 吗？`,
+    confirmType: 'danger',
+    onConfirm: async () => {
+      confirmDialog.value.isOpen = false
+      try {
+        await window.sshApi.deleteHost(hostName)
+        await loadHosts()
+      } catch (e) {
+        showAlert('删除失败', e.message)
+      }
+    }
   }
 }
 
 async function handleCopy(hostName) {
-  if (!confirm(`复制配置 "${hostName}"？`)) return
-  try {
-    await window.sshApi.copyHost(hostName)
-    await loadHosts()
-  } catch (e) {
-    alert('Failed to copy: ' + e.message)
+  confirmDialog.value = {
+    isOpen: true,
+    title: '复制确认',
+    message: `确定要复制配置 "${hostName}" 吗？`,
+    confirmType: 'primary',
+    onConfirm: async () => {
+      confirmDialog.value.isOpen = false
+      try {
+        await window.sshApi.copyHost(hostName)
+        await loadHosts()
+      } catch (e) {
+        showAlert('复制失败', e.message)
+      }
+    }
   }
+}
+
+function closeConfirmDialog() {
+  confirmDialog.value.isOpen = false
+}
+
+function handleConfirmDialogConfirm() {
+  if (confirmDialog.value.onConfirm) {
+    confirmDialog.value.onConfirm()
+  }
+}
+
+// 显示提示对话框
+function showAlert(title, message, type = 'error') {
+  alertDialog.value = {
+    isOpen: true,
+    title,
+    message,
+    type
+  }
+}
+
+function closeAlertDialog() {
+  alertDialog.value.isOpen = false
 }
 
 // 拖拽结束后保存新顺序
@@ -355,6 +414,23 @@ onUnmounted(() => {
     </div>
 
     <HostEditor :is-open="isEditorOpen" :initial-data="editingHost" @save="handleSave" @close="isEditorOpen = false" />
+    
+    <ConfirmDialog
+      :is-open="confirmDialog.isOpen"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-type="confirmDialog.confirmType"
+      @confirm="handleConfirmDialogConfirm"
+      @cancel="closeConfirmDialog"
+    />
+    
+    <AlertDialog
+      :is-open="alertDialog.isOpen"
+      :title="alertDialog.title"
+      :message="alertDialog.message"
+      :type="alertDialog.type"
+      @close="closeAlertDialog"
+    />
   </div>
 </template>
 
