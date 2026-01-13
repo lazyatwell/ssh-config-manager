@@ -15,6 +15,9 @@ const KEY_MAPPING = {
   'remark': 'Remark'
 }
 
+// init content for ~/.ssh/config
+const INIT_CONTENT = 'IgnoreUnknown Remark' + os.EOL.repeat(3)
+
 async function ensureConfigExists() {
   try {
     console.log('Checking if config file exists:', CONFIG_PATH)
@@ -22,7 +25,7 @@ async function ensureConfigExists() {
   } catch {
     try {
       await fs.mkdir(SSH_DIR, { recursive: true })
-      await fs.writeFile(CONFIG_PATH, '', 'utf8')
+      await fs.writeFile(CONFIG_PATH, INIT_CONTENT, 'utf8')
     } catch (err) {
       console.error('Failed to create config file:', err)
     }
@@ -51,7 +54,7 @@ function updateSectionProp(sectionConfig, param, value) {
         separator: ' ',
         value,
         before: indent,
-        after: '\n'
+        after: os.EOL
       })
     }
   } else if (lineIndex > -1) {
@@ -65,15 +68,21 @@ const TYPE_DIRECTIVE = 1
 
 export async function getAll() {
   await ensureConfigExists()
+  let isInit = false
+  let config = []
   try {
     const content = await fs.readFile(CONFIG_PATH, 'utf8')
     console.log('Read config file length:', content.length)
 
-    const config = parseConfig(content)
+    config = parseConfig(content)
     const hosts = []
-
     for (const section of config) {
-      if (section.param && section.param.toLowerCase() === 'host') {
+      
+      if(!section.param){
+        continue
+      }
+      const param = section.param.toLowerCase()
+      if (param === 'host') {
         const hostData = {
           Host: section.value,
         }
@@ -88,6 +97,8 @@ export async function getAll() {
           }
         }
         hosts.push(hostData)
+      }else if(param === 'ignoreunknown'){
+        isInit = true
       }
     }
 
@@ -96,6 +107,12 @@ export async function getAll() {
   } catch (err) {
     console.error('Error reading/parsing config:', err)
     return []
+  } finally {
+    if(config.length && !isInit){
+      const initBlock = SSHConfig.parse(INIT_CONTENT)
+      config.unshift(initBlock[0])
+      fs.writeFile(CONFIG_PATH, SSHConfig.stringify(config), 'utf8')
+    }
   }
 }
 
@@ -123,14 +140,15 @@ export async function saveHost(hostData) {
 
   } else {
     // Add new Host - 通过字符串解析避免 append 方法的自动缩进问题
-    const newLines = [`Host ${hostData.Host}`]
+    const newLines = ['', `Host ${hostData.Host}`]
     const props = ['HostName', 'User', 'Port', 'IdentityFile', 'Remark']
     props.forEach(prop => {
       if (hostData[prop]) {
-        newLines.push(`  ${prop} ${hostData[prop]}`)
+        newLines.push(`    ${prop} ${hostData[prop]}`)
       }
     })
-    const newConfigBlock = SSHConfig.parse(newLines.join('\n'))
+    newLines.push(os.EOL)
+    const newConfigBlock = SSHConfig.parse(newLines.join(os.EOL))
     config.push(newConfigBlock[0])
   }
 
@@ -222,16 +240,17 @@ export async function copyHost(hostName) {
 
   // 构建新配置块
   const newHostName = hostName + '-copy'
-  const newLines = [`Host ${newHostName}`]
+  const newLines = ['', `Host ${newHostName}`]
   const propOrder = ['HostName', 'User', 'Port', 'IdentityFile', 'Remark']
   propOrder.forEach(prop => {
     if (props[prop]) {
-      newLines.push(`  ${prop} ${props[prop]}`)
+      newLines.push(`    ${prop} ${props[prop]}`)
     }
   })
+  newLines.push(os.EOL)
 
   // 解析新配置块
-  const newConfigBlock = SSHConfig.parse(newLines.join('\n'))
+  const newConfigBlock = SSHConfig.parse(newLines.join(os.EOL))
 
   // 在原配置后面插入新配置
   config.splice(sectionIndex + 1, 0, newConfigBlock[0])
