@@ -4,3 +4,4 @@ build
 release
 *.zip
 *.tgz
+.kiro
