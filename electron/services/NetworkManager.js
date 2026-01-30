@@ -304,6 +304,7 @@ export class NetworkManager {
         HostName: remoteNode.HostName,
         User: remoteNode.User,
         Port: remoteNode.Port,
+        IdentityFile: remoteNode.IdentityFile,
         Remark: remoteNode.Remark ? `${remoteNode.Remark} (来自 ${peerInfo.deviceName})` : `来自 ${peerInfo.deviceName}`
       }
 

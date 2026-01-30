@@ -263,12 +263,11 @@ export class ShareService {
   filterSensitiveData(nodeData) {
     const filtered = { ...nodeData }
     
-    // 移除敏感字段
-    delete filtered.IdentityFile
+    // 移除内部字段
     delete filtered.originalHost
     
-    // 只保留基本连接信息
-    const allowedFields = ['Host', 'HostName', 'User', 'Port', 'Remark']
+    // 只保留基本连接信息（包含 IdentityFile 供接收方参考）
+    const allowedFields = ['Host', 'HostName', 'User', 'Port', 'IdentityFile', 'Remark']
     const result = {}
     
     allowedFields.forEach(field => {

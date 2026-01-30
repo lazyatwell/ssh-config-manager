@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, toRaw } from 'vue'
 
 const props = defineProps({
   peer: {
@@ -26,7 +26,8 @@ async function fetchRemoteNodes() {
 
   try {
     if (window.networkApi) {
-      remoteNodes.value = await window.networkApi.fetchRemoteNodes(props.peer)
+      // 使用 toRaw 将响应式对象转换为普通对象，避免 IPC 序列化错误
+      remoteNodes.value = await window.networkApi.fetchRemoteNodes(toRaw(props.peer))
     }
   } catch (err) {
     console.error('Failed to fetch remote nodes:', err)
@@ -46,11 +47,12 @@ async function importNode(node) {
 
   try {
     if (window.networkApi) {
-      const importedNode = await window.networkApi.importRemoteNode(props.peer, node.id)
+      // 使用 toRaw 将响应式对象转换为普通对象，避免 IPC 序列化错误
+      const importedNode = await window.networkApi.importRemoteNode(toRaw(props.peer), node.id)
       emit('node-imported', {
         originalNode: node,
         importedNode,
-        source: props.peer
+        source: toRaw(props.peer)
       })
       
       // 显示成功提示（这里可以用更好的提示组件）

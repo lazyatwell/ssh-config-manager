@@ -56,6 +56,7 @@ async function toggleShare() {
         HostName: String(props.nodeData.HostName || ''),
         User: String(props.nodeData.User || ''),
         Port: String(props.nodeData.Port || ''),
+        IdentityFile: String(props.nodeData.IdentityFile || ''),
         Remark: String(props.nodeData.Remark || '')
       }
       
