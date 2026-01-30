@@ -1,6 +1,6 @@
 {
   "name": "ssh-config-manager",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "SSH Config Manager",
   "license": "MIT",
   "author": "atwell",
@@ -18,7 +18,7 @@
   },
   "build": {
     "appId": "com.ssh-config-manager.app",
-    "productName": "SSH Config Manager",
+    "productName": "SSH_Config_Manager",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"
@@ -44,8 +44,7 @@
         {
           "target": "dmg",
           "arch": [
-            "x64",
-            "arm64"
+            "x64"
           ]
         }
       ]

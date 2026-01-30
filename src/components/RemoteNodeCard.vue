@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, toRaw } from 'vue'
+import { ref, onMounted, onUnmounted, toRaw } from 'vue'
 
 const props = defineProps({
   peer: {
@@ -34,6 +34,21 @@ async function fetchRemoteNodes() {
     error.value = '获取节点列表失败'
   } finally {
     isLoading.value = false
+  }
+}
+
+async function refreshRemoteNodesSliently() {
+  try {
+    if (!props.peer.isOnline) {
+      return
+    }
+    if (window.networkApi) {
+      // 使用 toRaw 将响应式对象转换为普通对象，避免 IPC 序列化错误
+      remoteNodes.value = await window.networkApi.fetchRemoteNodes(toRaw(props.peer))
+      error.value = ''
+    }
+  } catch (err) {
+    console.error('Failed to fetch remote nodes:', err)
   }
 }
 
@@ -72,8 +87,15 @@ function formatPort(port) {
   return port && port !== '22' ? `:${port}` : ''
 }
 
+const intervalId = ref(null)
+
 onMounted(() => {
-  fetchRemoteNodes()
+  setTimeout(fetchRemoteNodes, 1000)
+  intervalId.value = setInterval(refreshRemoteNodesSliently, 10000)
+})
+
+onUnmounted(() => {
+  clearInterval(intervalId.value)
 })
 </script>
 
@@ -175,9 +197,3 @@ onMounted(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-.remote-node-card {
-  /* 组件样式 */
-}
-</style>
