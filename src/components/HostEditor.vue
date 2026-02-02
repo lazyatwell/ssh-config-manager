@@ -81,10 +81,10 @@ function validate() {
     }
   }
 
-  // Port: 编辑模式下必填，新增模式下可空（保存时默认 22）
+  // Port: 可不填，默认 22
   if (isEditMode.value) {
     if (!form.value.Port) {
-      errs.Port = 'Port 为必填项'
+      form.value.Port = ''
     } else {
       const portNum = parseInt(form.value.Port, 10)
       if (isNaN(portNum) || !/^\d+$/.test(form.value.Port)) {
@@ -166,7 +166,7 @@ function save() {
   }
   // 新增模式下，Port 为空时默认 22
   if (!isEditMode.value && !payload.Port) {
-    payload.Port = '22'
+    payload.Port = ''
   }
   
   if (props.initialData) {
@@ -258,7 +258,7 @@ function inputClass(field) {
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-              Port <span v-if="isEditMode" class="text-red-400">*</span>
+              Port
             </label>
             <div class="relative group">
               <input v-model="form.Port" type="text" maxlength="5" :class="inputClass('Port')" :placeholder="isEditMode ? '22' : '22 (默认)'" />

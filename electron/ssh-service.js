@@ -165,7 +165,11 @@ export async function deleteHost(host) {
 
   if (sectionIndex > -1) {
     config.splice(sectionIndex, 1)
-    await fs.writeFile(CONFIG_PATH, SSHConfig.stringify(config), 'utf8')
+    // 生成配置字符串并清理多余空行
+    let result = SSHConfig.stringify(config)
+    // 将连续3个或更多换行符替换为1个换行符
+    result = result.replace(/(\r?\n){3,}/g, os.EOL)
+    await fs.writeFile(CONFIG_PATH, result, 'utf8')
   }
 
   return true
