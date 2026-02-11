@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import os from 'node:os'
+import fs from 'node:fs'
 import electronUpdater from 'electron-updater'
 import * as sshService from './ssh-service.js'
 import { NetworkManager } from './services/NetworkManager.js'
@@ -10,10 +11,44 @@ import { NetworkManager } from './services/NetworkManager.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.join(__dirname, '..')
 const { autoUpdater } = electronUpdater
+const isDev =
+  !app.isPackaged ||
+  process.env.NODE_ENV === 'development' ||
+  process.env.ELECTRON_IS_DEV === '1'
+
+function logUpdater(level, message, extra) {
+  const timestamp = new Date().toISOString()
+  const prefix = `[autoUpdater][${timestamp}]`
+  if (extra !== undefined) {
+    console[level](`${prefix} ${message}`, extra)
+  } else {
+    console[level](`${prefix} ${message}`)
+  }
+}
 
 // 自动更新配置
 autoUpdater.autoDownload = false // 不自动下载，让用户确认
 autoUpdater.autoInstallOnAppQuit = true // 退出时自动安装
+autoUpdater.logger = {
+  info: (...args) => logUpdater('log', args.join(' ')),
+  warn: (...args) => logUpdater('warn', args.join(' ')),
+  error: (...args) => logUpdater('error', args.join(' ')),
+  debug: (...args) => logUpdater('log', args.join(' '))
+}
+
+if (isDev) {
+  autoUpdater.forceDevUpdateConfig = true
+  const devUpdateConfigPath = path.join(PROJECT_ROOT, 'dev-app-update.yml')
+  autoUpdater.updateConfigPath = devUpdateConfigPath
+  if (!fs.existsSync(devUpdateConfigPath)) {
+    logUpdater(
+      'warn',
+      `开发模式下未找到 dev-app-update.yml，更新检查将无法正常工作: ${devUpdateConfigPath}`
+    )
+  } else {
+    logUpdater('log', `开发模式启用更新调试配置: ${devUpdateConfigPath}`)
+  }
+}
 
 let mainWindow = null
 let networkManager = null
@@ -103,18 +138,23 @@ function sendUpdateStatus(status, data = {}) {
 
 // 设置自动更新事件监听
 function setupAutoUpdater() {
+  logUpdater('log', `初始化更新器，isDev=${isDev}, appVersion=${app.getVersion()}`)
+
   // 检查更新出错
   autoUpdater.on('error', (error) => {
+    logUpdater('error', '检查更新失败', error)
     sendUpdateStatus('error', { message: error.message })
   })
 
   // 检查更新中
   autoUpdater.on('checking-for-update', () => {
+    logUpdater('log', '正在检查更新')
     sendUpdateStatus('checking')
   })
 
   // 有可用更新
   autoUpdater.on('update-available', (info) => {
+    logUpdater('log', `发现新版本: ${info.version}`, info)
     sendUpdateStatus('available', { 
       version: info.version,
       releaseDate: info.releaseDate,
@@ -124,11 +164,13 @@ function setupAutoUpdater() {
 
   // 没有可用更新
   autoUpdater.on('update-not-available', (info) => {
+    logUpdater('log', `当前已是最新版本: ${info.version}`, info)
     sendUpdateStatus('not-available', { version: info.version })
   })
 
   // 下载进度
   autoUpdater.on('download-progress', (progress) => {
+    logUpdater('log', `下载进度: ${Math.round(progress.percent || 0)}%`)
     sendUpdateStatus('downloading', {
       percent: progress.percent,
       transferred: progress.transferred,
@@ -139,6 +181,7 @@ function setupAutoUpdater() {
 
   // 下载完成
   autoUpdater.on('update-downloaded', (info) => {
+    logUpdater('log', `更新下载完成: ${info.version}`, info)
     sendUpdateStatus('downloaded', { version: info.version })
   })
 }
@@ -182,8 +225,6 @@ function createWindow() {
   // But vite runs on 5173.
   
   // A common pattern for electron-vite setups:
-  const isDev = process.env.npm_lifecycle_event === 'dev'
-  
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
@@ -351,17 +392,39 @@ app.whenReady().then(async () => {
   })
 
   // Register IPC handlers for auto-update
-  ipcMain.handle('updater:check', () => {
-    return autoUpdater.checkForUpdates()
+  ipcMain.handle('updater:check', async () => {
+    logUpdater('log', '收到手动检查更新请求')
+    try {
+      return await autoUpdater.checkForUpdates()
+    } catch (error) {
+      logUpdater('error', '手动检查更新失败', error)
+      throw error
+    }
   })
-  ipcMain.handle('updater:download', () => {
-    return autoUpdater.downloadUpdate()
+  ipcMain.handle('updater:download', async () => {
+    logUpdater('log', '收到手动下载更新请求')
+    try {
+      return await autoUpdater.downloadUpdate()
+    } catch (error) {
+      logUpdater('error', '手动下载更新失败', error)
+      throw error
+    }
   })
   ipcMain.handle('updater:install', () => {
+    logUpdater('log', '收到安装更新请求，准备重启安装')
     autoUpdater.quitAndInstall(false, true)
   })
   ipcMain.handle('updater:get-version', () => {
     return app.getVersion()
+  })
+  ipcMain.handle('updater:get-debug-info', () => {
+    return {
+      isDev,
+      isPackaged: app.isPackaged,
+      version: app.getVersion(),
+      updateConfigPath: autoUpdater.updateConfigPath,
+      forceDevUpdateConfig: autoUpdater.forceDevUpdateConfig
+    }
   })
   
   // 设置自动更新
@@ -424,12 +487,17 @@ app.whenReady().then(async () => {
   }
 
   // 非开发环境下，启动后自动检查更新
-  const isDev = process.env.npm_lifecycle_event === 'dev'
   if (!isDev) {
     // 延迟 3 秒检查更新，避免影响启动体验
     setTimeout(() => {
+      logUpdater('log', '生产模式启动后自动检查更新')
       autoUpdater.checkForUpdates()
     }, 3000)
+  } else {
+    logUpdater(
+      'log',
+      '开发模式不会自动检查更新，可在界面双击版本号或调用 updater:check 手动触发'
+    )
   }
 
   app.on('activate', () => {

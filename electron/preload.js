@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('updaterApi', {
   installUpdate: () => ipcRenderer.invoke('updater:install'),
   // 获取当前版本
   getVersion: () => ipcRenderer.invoke('updater:get-version'),
+  // 获取更新器调试信息（开发模式排障用）
+  getDebugInfo: () => ipcRenderer.invoke('updater:get-debug-info'),
   // 监听更新状态，返回取消订阅函数
   onUpdateStatus: (callback) => {
     const listener = (_, data) => callback(data)

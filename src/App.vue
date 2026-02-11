@@ -56,8 +56,9 @@
       result = result.filter(h =>
         h.Host.toLowerCase().includes(q) ||
         (h.HostName && h.HostName.toLowerCase().includes(q)) ||
+        (h.Remark && h.Remark.toLowerCase().includes(q)) ||
         (h.User && h.User.toLowerCase().includes(q)) ||
-        (h.Remark && h.Remark.toLowerCase().includes(q))
+        (h.Port && h.Port.toString().includes(q))
       )
     }
     return result
@@ -284,6 +285,10 @@
     // 获取当前版本
     if (window.updaterApi) {
       currentVersion.value = await window.updaterApi.getVersion()
+      if (window.updaterApi.getDebugInfo) {
+        const debugInfo = await window.updaterApi.getDebugInfo()
+        console.log('Updater debug info:', debugInfo)
+      }
       // 监听更新状态，保存取消订阅函数
       unsubscribeUpdateStatus = window.updaterApi.onUpdateStatus(handleUpdateStatus)
     }
@@ -297,8 +302,6 @@
       unsubscribeSharingEnabled = window.networkApi.onSharingEnabled(handleSharingEnabled)
     }
 
-    // 点击外部关闭下拉菜单
-    document.addEventListener('click', closeDropdown)
   })
 
   onUnmounted(() => {
@@ -316,11 +319,14 @@
       unsubscribeSharingEnabled = null
     }
 
-    // 移除点击事件监听器
-    document.removeEventListener('click', closeDropdown)
   })
 
-  // 切换下拉菜单
+  // hover 打开下拉菜单
+  function openDropdown(hostName) {
+    dropdownOpen.value = hostName
+  }
+
+  // 点击切换下拉菜单（触屏/可访问性场景）
   function toggleDropdown(hostName) {
     dropdownOpen.value = dropdownOpen.value === hostName ? null : hostName
   }
@@ -393,7 +399,7 @@
       </div>
     </Transition>
 
-    <div class="max-w-5xl mx-auto p-6 md:p-10">
+    <div class="max-w-full mx-auto p-6 md:p-10">
       <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 class="text-3xl font-bold text-gray-900 tracking-tight">SSH Config Manager</h1>
@@ -417,13 +423,22 @@
 
       <div class="mb-8 relative group">
         <input v-model="searchQuery" type="text" placeholder="Search hosts by alias, IP, or user..."
-          class="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-gray-700 placeholder-gray-400" />
+          class="w-full pl-12 pr-12 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-gray-700 placeholder-gray-400" />
         <span class="absolute left-4 top-3.5 text-gray-400 group-focus-within:text-blue-500 transition">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </span>
+        <button v-if="searchQuery" @click="searchQuery = ''"
+          class="absolute right-6 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition"
+          type="button" title="Clear search">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd"
+              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+              clip-rule="evenodd" />
+          </svg>
+        </button>
       </div>
 
       <!-- 网络分享组件 -->
@@ -442,7 +457,7 @@
 
       <draggable v-else v-model="hosts" item-key="Host" handle=".drag-handle" :disabled="!isDragEnabled"
         ghost-class="opacity-40" chosen-class="shadow-lg" drag-class="shadow-2xl" animation="200"
-        class="grid gap-5 grid-cols-1 md:grid-cols-2 lg:grid-cols-3" @end="handleDragEnd">
+        class="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 lg:gap-2 xl:gap-1" @end="handleDragEnd">
         <template #item="{ element: host }">
           <div v-show="!searchQuery || filteredHosts.some(h => h.Host === host.Host)"
             class="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition group flex">
@@ -483,7 +498,7 @@
                   </button>
 
                   <!-- 大屏幕时显示的完整按钮组 -->
-                  <div class="lg:hidden flex items-center gap-1">
+                  <div class="xl:hidden flex items-center gap-1">
                     <ShareToggle :node-id="host.Host" :node-data="host" @share-changed="handleShareChanged" />
                     <button @click="openEdit(host)"
                       class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition" title="编辑">
@@ -513,7 +528,7 @@
                   </div>
 
                   <!-- 小屏幕时显示的下拉菜单 -->
-                  <div class="hidden lg:flex relative">
+                  <div class="hidden xl:flex relative" @mouseenter="openDropdown(host.Host)" @mouseleave="closeDropdown">
                     <button @click.stop="toggleDropdown(host.Host)"
                       class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-md transition"
                       title="更多操作">
