@@ -1,11 +1,14 @@
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   isOpen: Boolean,
   title: {
     type: String,
-    default: '确认'
+    default: ''
   },
   message: {
     type: String,
@@ -13,11 +16,11 @@ const props = defineProps({
   },
   confirmText: {
     type: String,
-    default: '确认'
+    default: ''
   },
   cancelText: {
     type: String,
-    default: '取消'
+    default: ''
   },
   confirmType: {
     type: String,
@@ -25,6 +28,11 @@ const props = defineProps({
     validator: (value) => ['primary', 'danger'].includes(value)
   }
 })
+
+// 未显式传入时回退到语言包默认文案（computed 保证切换语言实时生效）
+const displayTitle = computed(() => props.title || t('common.confirm'))
+const displayConfirmText = computed(() => props.confirmText || t('common.confirm'))
+const displayCancelText = computed(() => props.cancelText || t('common.cancel'))
 
 const emit = defineEmits(['confirm', 'cancel'])
 
@@ -79,7 +87,7 @@ const confirmBtnClass = {
             v-if="isOpen"
             class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 transform"
           >
-            <h3 class="text-lg font-bold text-gray-800 mb-2">{{ title }}</h3>
+            <h3 class="text-lg font-bold text-gray-800 mb-2">{{ displayTitle }}</h3>
             <p class="text-gray-600 mb-6">{{ message }}</p>
             
             <div class="flex justify-end space-x-3">
@@ -87,7 +95,7 @@ const confirmBtnClass = {
                 @click="handleCancel"
                 class="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition focus:outline-none focus:ring-2 focus:ring-gray-200"
               >
-                {{ cancelText }}
+                {{ displayCancelText }}
               </button>
               <button
                 ref="confirmBtnRef"
@@ -97,7 +105,7 @@ const confirmBtnClass = {
                   confirmType === 'danger' ? 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500' : 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500'
                 ]"
               >
-                {{ confirmText }}
+                {{ displayConfirmText }}
               </button>
             </div>
           </div>

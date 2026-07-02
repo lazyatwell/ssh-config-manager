@@ -58,15 +58,15 @@ defineExpose({
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
         </svg>
-        本机分享的节点
+        {{ $t('localShared.title') }}
       </h4>
-      <span class="text-xs text-gray-500">{{ localSharedNodes.length }} 个</span>
+      <span class="text-xs text-gray-500">{{ $t('localShared.count', { n: localSharedNodes.length }) }}</span>
     </div>
 
     <!-- 加载状态 -->
     <div v-if="isLoading" class="text-center py-4">
       <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mx-auto mb-2"></div>
-      <p class="text-xs text-gray-500">加载中...</p>
+      <p class="text-xs text-gray-500">{{ $t('common.loading') }}</p>
     </div>
 
     <!-- 空状态 -->
@@ -76,8 +76,8 @@ defineExpose({
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
         </svg>
       </div>
-      <p class="text-sm text-gray-500">暂无分享节点</p>
-      <p class="text-xs text-gray-400 mt-1">点击节点卡片上的分享按钮开始分享</p>
+      <p class="text-sm text-gray-500">{{ $t('localShared.empty') }}</p>
+      <p class="text-xs text-gray-400 mt-1">{{ $t('localShared.emptyHint') }}</p>
     </div>
 
     <!-- 节点列表 -->
@@ -113,7 +113,7 @@ defineExpose({
         <!-- 分享状态指示 -->
         <div class="ml-3 flex items-center gap-2">
           <div class="w-2 h-2 bg-blue-400 rounded-full"></div>
-          <span class="text-xs text-blue-600 font-medium">分享中</span>
+          <span class="text-xs text-blue-600 font-medium">{{ $t('localShared.sharing') }}</span>
         </div>
       </div>
 
@@ -123,7 +123,7 @@ defineExpose({
           @click="isExpanded = !isExpanded"
           class="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 mx-auto"
         >
-          <span>{{ isExpanded ? '收起' : `展开全部 (${localSharedNodes.length})` }}</span>
+          <span>{{ isExpanded ? $t('common.collapse') : $t('localShared.expandAll', { n: localSharedNodes.length }) }}</span>
           <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 transition-transform" :class="{ 'rotate-180': isExpanded }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
           </svg>

@@ -37,7 +37,8 @@ async function getNetworkStatus() {
     }
   } catch (err) {
     console.error('Failed to get network status:', err)
-    error.value = '获取网络状态失败'
+    // error 存语言包 key，模板 $t() 渲染，切换语言实时更新
+    error.value = 'network.statusFailed'
   }
 }
 
@@ -49,7 +50,7 @@ async function getDiscoveredPeers() {
     }
   } catch (err) {
     console.error('Failed to get discovered peers:', err)
-    error.value = '获取设备列表失败'
+    error.value = 'network.peersFailed'
   }
 }
 
@@ -67,7 +68,7 @@ async function toggleSharing() {
     await getNetworkStatus()
   } catch (err) {
     console.error('Failed to toggle sharing:', err)
-    error.value = '切换分享功能失败'
+    error.value = 'network.toggleFailed'
   } finally {
     isLoading.value = false
   }
@@ -93,7 +94,7 @@ async function refreshDiscovery() {
     }
   } catch (err) {
     console.error('Failed to refresh discovery:', err)
-    error.value = '刷新发现失败'
+    error.value = 'network.refreshFailed'
     isLoading.value = false
   }
 }
@@ -212,17 +213,17 @@ onUnmounted(() => {
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
             </svg>
-            <h3 class="text-lg font-semibold text-gray-800">局域网分享</h3>
+            <h3 class="text-lg font-semibold text-gray-800">{{ $t('network.title') }}</h3>
           </div>
-          
+
           <!-- 状态指示 -->
           <div class="flex items-center gap-2 text-sm">
             <div :class="networkStatus.sharingEnabled ? 'w-2 h-2 bg-green-400 rounded-full' : 'w-2 h-2 bg-gray-300 rounded-full'"></div>
             <span class="text-gray-500">
-              {{ networkStatus.sharingEnabled ? '已启用' : '已禁用' }}
+              {{ networkStatus.sharingEnabled ? $t('network.enabled') : $t('network.disabled') }}
             </span>
             <span v-if="networkStatus.sharingEnabled && onlinePeerCount > 0" class="text-gray-400">
-              • {{ onlinePeerCount }} 个设备在线
+              • {{ $t('network.devicesOnline', { n: onlinePeerCount }) }}
             </span>
           </div>
         </div>
@@ -234,7 +235,7 @@ onUnmounted(() => {
             @click="refreshDiscovery"
             :disabled="isLoading"
             class="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
-            title="刷新发现"
+            :title="$t('network.refreshDiscovery')"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" :class="{ 'animate-spin': isLoading }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -250,7 +251,7 @@ onUnmounted(() => {
               : 'bg-green-100 text-green-600 hover:bg-green-200'"
             class="px-3 py-1.5 rounded-md text-sm font-medium transition"
           >
-            {{ isLoading ? '处理中...' : (networkStatus.sharingEnabled ? '关闭' : '开启') }}
+            {{ isLoading ? $t('common.processing') : (networkStatus.sharingEnabled ? $t('network.turnOff') : $t('network.turnOn')) }}
           </button>
 
           <!-- 展开/收起按钮 -->
@@ -258,7 +259,7 @@ onUnmounted(() => {
             v-if="networkStatus.sharingEnabled"
             @click="isExpanded = !isExpanded"
             class="p-2 text-gray-400 hover:text-gray-600 rounded-md transition"
-            :title="isExpanded ? '收起' : '展开'"
+            :title="isExpanded ? $t('common.collapse') : $t('common.expand')"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transition-transform" :class="{ 'rotate-180': isExpanded }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -269,7 +270,7 @@ onUnmounted(() => {
 
       <!-- 错误提示 -->
       <div v-if="error" class="mt-3 p-2 bg-red-50 border border-red-200 rounded-md">
-        <p class="text-sm text-red-600">{{ error }}</p>
+        <p class="text-sm text-red-600">{{ $t(error) }}</p>
       </div>
     </div>
 
@@ -290,9 +291,9 @@ onUnmounted(() => {
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
               </svg>
-              网络发现的设备
+              {{ $t('network.discoveredDevices') }}
             </h4>
-            <span class="text-xs text-gray-500">{{ onlinePeerCount }} 个在线</span>
+            <span class="text-xs text-gray-500">{{ $t('network.onlineCount', { n: onlinePeerCount }) }}</span>
           </div>
 
           <!-- 空状态 -->
@@ -302,8 +303,8 @@ onUnmounted(() => {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
             </div>
-            <p class="text-sm text-gray-500">未发现其他设备</p>
-            <p class="text-xs text-gray-400 mt-1">确保其他设备也开启了分享功能</p>
+            <p class="text-sm text-gray-500">{{ $t('network.noDevices') }}</p>
+            <p class="text-xs text-gray-400 mt-1">{{ $t('network.noDevicesHint') }}</p>
           </div>
 
           <!-- 设备列表 -->
@@ -320,7 +321,7 @@ onUnmounted(() => {
                     </div>
                   </div>
                   <div class="text-sm text-gray-500">
-                    {{ peer.sharedCount || 0 }} 个节点
+                    {{ $t('network.nodeCount', { n: peer.sharedCount || 0 }) }}
                   </div>
                 </div>
               </div>
@@ -338,8 +339,8 @@ onUnmounted(() => {
     <!-- 简化状态显示（未展开时） -->
     <div v-if="networkStatus.sharingEnabled && !isExpanded && onlinePeerCount > 0" class="px-4 py-2 bg-gray-50 border-t border-gray-100">
       <p class="text-sm text-gray-600 text-center">
-        发现 {{ onlinePeerCount }} 个设备，共 {{ totalSharedNodes }} 个分享节点
-        <button @click="isExpanded = true" class="text-blue-600 hover:text-blue-700 ml-1">查看详情</button>
+        {{ $t('network.summary', { devices: onlinePeerCount, nodes: totalSharedNodes }) }}
+        <button @click="isExpanded = true" class="text-blue-600 hover:text-blue-700 ml-1">{{ $t('network.viewDetails') }}</button>
       </p>
     </div>
   </div>

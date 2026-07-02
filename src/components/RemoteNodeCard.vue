@@ -1,5 +1,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted, toRaw } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   peer: {
@@ -31,7 +34,8 @@ async function fetchRemoteNodes() {
     }
   } catch (err) {
     console.error('Failed to fetch remote nodes:', err)
-    error.value = '获取节点列表失败'
+    // error 存语言包 key，模板 $t() 渲染
+    error.value = 'remoteNode.fetchFailed'
   } finally {
     isLoading.value = false
   }
@@ -76,7 +80,7 @@ async function importNode(node) {
   } catch (err) {
     console.error('Failed to import node:', err)
     // 显示错误提示
-    alert(`导入节点失败: ${err.message}`)
+    alert(t('remoteNode.importFailed', { detail: err.message }))
   } finally {
     importingNodes.value.delete(node.id)
   }
@@ -104,25 +108,25 @@ onUnmounted(() => {
     <!-- 加载状态 -->
     <div v-if="isLoading" class="text-center py-4">
       <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
-      <p class="text-sm text-gray-500">加载节点列表...</p>
+      <p class="text-sm text-gray-500">{{ $t('remoteNode.loading') }}</p>
     </div>
 
     <!-- 错误状态 -->
     <div v-else-if="error" class="text-center py-4">
       <div class="bg-red-50 p-3 rounded-lg">
-        <p class="text-sm text-red-600">{{ error }}</p>
-        <button 
-          @click="fetchRemoteNodes" 
+        <p class="text-sm text-red-600">{{ $t(error) }}</p>
+        <button
+          @click="fetchRemoteNodes"
           class="mt-2 text-xs text-red-700 hover:text-red-800 underline"
         >
-          重试
+          {{ $t('common.retry') }}
         </button>
       </div>
     </div>
 
     <!-- 空状态 -->
     <div v-else-if="remoteNodes.length === 0" class="text-center py-4">
-      <p class="text-sm text-gray-500">该设备未分享任何节点</p>
+      <p class="text-sm text-gray-500">{{ $t('remoteNode.empty') }}</p>
     </div>
 
     <!-- 节点列表 -->
@@ -181,7 +185,7 @@ onUnmounted(() => {
           >
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
-          {{ importingNodes.has(node.id) ? '导入中' : '添加' }}
+          {{ importingNodes.has(node.id) ? $t('remoteNode.importing') : $t('remoteNode.add') }}
         </button>
       </div>
     </div>
@@ -192,7 +196,7 @@ onUnmounted(() => {
         @click="fetchRemoteNodes"
         class="text-xs text-gray-500 hover:text-gray-700 underline"
       >
-        刷新节点列表
+        {{ $t('remoteNode.refreshList') }}
       </button>
     </div>
   </div>

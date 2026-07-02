@@ -1,5 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   nodeId: {
@@ -32,9 +35,9 @@ const buttonClass = computed(() => {
 // 计算提示文本
 const shareTooltip = computed(() => {
   if (isLoading.value) {
-    return '处理中...'
+    return t('common.processing')
   }
-  return isShared.value ? '取消分享到局域网' : '分享到局域网'
+  return isShared.value ? t('share.unshare') : t('share.share')
 })
 
 // 切换分享状态

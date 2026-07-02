@@ -301,12 +301,13 @@ export async function listIdentityFiles() {
 }
 
 // 调用 ssh-keygen 生成默认密钥（无口令）。与 CopyIdService 一致：
-// 始终返回结果对象而不抛异常，避免渲染进程提示里带上 IPC 错误前缀
+// 始终返回结果对象而不抛异常，避免渲染进程提示里带上 IPC 错误前缀。
+// 失败时带 code + params 供渲染进程 i18n 映射（errors.* 键），message 为中文兜底
 export async function generateDefaultKey() {
   try {
     await fs.mkdir(SSH_DIR, { recursive: true })
   } catch (err) {
-    return { success: false, message: `无法创建 ~/.ssh 目录: ${err.message}` }
+    return { success: false, code: 'mkdirFailed', params: { detail: err.message }, message: `无法创建 ~/.ssh 目录: ${err.message}` }
   }
 
   // 目标文件已存在时 ssh-keygen 会交互式询问是否覆盖导致进程挂起，
@@ -324,7 +325,7 @@ export async function generateDefaultKey() {
     }
   }
   if (!target) {
-    return { success: false, message: '默认密钥文件（id_ed25519 / id_rsa）已存在，请先手动处理' }
+    return { success: false, code: 'keyExists', params: {}, message: '默认密钥文件（id_ed25519 / id_rsa）已存在，请先手动处理' }
   }
 
   const keyPath = path.join(SSH_DIR, target.name)
@@ -339,18 +340,18 @@ export async function generateDefaultKey() {
     // 关闭 stdin，任何意外的交互式提问都会读到 EOF 而不是挂起
     child.stdin.end()
     child.on('error', (err) => {
-      resolve({
-        success: false,
-        message: err.code === 'ENOENT'
-          ? '未找到 ssh-keygen 命令，请确认已安装 OpenSSH 客户端'
-          : err.message
-      })
+      if (err.code === 'ENOENT') {
+        resolve({ success: false, code: 'keygenNotFound', params: {}, message: '未找到 ssh-keygen 命令，请确认已安装 OpenSSH 客户端' })
+      } else {
+        resolve({ success: false, code: 'generic', params: { detail: err.message }, message: err.message })
+      }
     })
     child.on('close', (code) => {
       if (code === 0) {
         resolve({ success: true, keyPath: '~/.ssh/' + target.name })
       } else {
-        resolve({ success: false, message: stderr.trim() || `ssh-keygen 退出码 ${code}` })
+        const detail = stderr.trim() || `exit ${code}`
+        resolve({ success: false, code: 'keygenFailed', params: { detail }, message: `ssh-keygen 执行失败：${detail}` })
       }
     })
   })

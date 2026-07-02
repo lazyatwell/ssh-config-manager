@@ -71,6 +71,23 @@ object (`{success, ...}`) instead of throwing, so renderer error messages stay c
 of IPC prefixes. The password arrives from the New Host dialog's Copy ID button,
 lives only in that one IPC call, and must never be logged or persisted.
 
+### i18n (`src/i18n/`)
+
+vue-i18n (`legacy: false`, `globalInjection: true`), zh-CN + en-US. Rules:
+
+- **All renderer copy lives in `src/i18n/locales/{zh-CN,en-US}.js`** — never hardcode
+  user-visible strings in components. The two files must stay structurally identical.
+  Templates use `$t(...)`; scripts use `useI18n()`.
+- Locale preference persists in `localStorage['scm-locale']`; default follows the
+  system language. The header button next to the version toggles it via `setLocale()`.
+- For live language switching, persistent error state stores **i18n keys** (or
+  code objects), not translated strings — e.g. HostEditor validation errors hold
+  keys rendered with `$t(errors.X)`.
+- **Main-process user-visible failures return `{ success: false, code, params, message }`**
+  (message is the Chinese fallback). The renderer maps `code` via the `errors.*`
+  namespace using `translateError()` from `src/i18n/index.js`. When adding a new
+  failure branch, register its code in both locale files.
+
 ### LAN sharing (`electron/services/`)
 
 Composed by `NetworkManager`, which orchestrates two services and persists state to
@@ -94,5 +111,6 @@ restores previously shared nodes from the persisted config.
   in dev it needs `dev-app-update.yml` and must be triggered manually.
 - Publishing targets the GitHub repo `lazyatwell/ssh-config-manager` (see the
   `build.publish` block) — that owner drives where `electron-updater` looks for releases.
-- Much of the inline commentary and user-facing strings are in Chinese; match the
-  surrounding language when editing a given file.
+- Much of the inline commentary is in Chinese; match the surrounding language when
+  editing a given file. User-facing strings go through i18n (see the i18n section) —
+  do not add hardcoded copy.

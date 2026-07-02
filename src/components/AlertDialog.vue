@@ -1,11 +1,14 @@
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   isOpen: Boolean,
   title: {
     type: String,
-    default: '提示'
+    default: ''
   },
   message: {
     type: String,
@@ -13,7 +16,7 @@ const props = defineProps({
   },
   buttonText: {
     type: String,
-    default: '确定'
+    default: ''
   },
   type: {
     type: String,
@@ -23,6 +26,10 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close'])
+
+// 未显式传入时回退到语言包默认文案（computed 保证切换语言实时生效）
+const displayTitle = computed(() => props.title || t('common.alertTitle'))
+const displayButtonText = computed(() => props.buttonText || t('common.ok'))
 
 const okBtnRef = ref(null)
 
@@ -94,7 +101,7 @@ const typeConfig = {
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
-                <h3 class="text-lg font-bold text-gray-800 mb-1">{{ title }}</h3>
+                <h3 class="text-lg font-bold text-gray-800 mb-1">{{ displayTitle }}</h3>
                 <p class="text-gray-600 text-sm break-words">{{ message }}</p>
               </div>
             </div>
@@ -105,7 +112,7 @@ const typeConfig = {
                 @click="handleClose"
                 class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
-                {{ buttonText }}
+                {{ displayButtonText }}
               </button>
             </div>
           </div>

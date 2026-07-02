@@ -1,11 +1,20 @@
 <script setup>
   import { ref, onMounted, onUnmounted, computed } from 'vue'
+  import { useI18n } from 'vue-i18n'
   import draggable from 'vuedraggable'
   import HostEditor from './components/HostEditor.vue'
   import ConfirmDialog from './components/ConfirmDialog.vue'
   import AlertDialog from './components/AlertDialog.vue'
   import ShareToggle from './components/ShareToggle.vue'
   import NetworkDiscovery from './components/NetworkDiscovery.vue'
+  import { setLocale, translateError } from './i18n/index.js'
+
+  const { t, locale } = useI18n()
+
+  // 中英互切
+  function toggleLocale() {
+    setLocale(locale.value === 'zh-CN' ? 'en-US' : 'zh-CN')
+  }
 
   const hosts = ref([])
   const searchQuery = ref('')
@@ -71,7 +80,7 @@
         hosts.value = await window.sshApi.getAll()
         error.value = ''
       } else {
-        error.value = 'SSH API not available (Are you running in Electron?)'
+        error.value = t('app.apiUnavailable')
       }
     } catch (e) {
       error.value = e.message
@@ -107,15 +116,15 @@
         }
       }
     } catch (e) {
-      showAlert('保存失败', e.message)
+      showAlert(t('app.saveFailed'), e.message)
     }
   }
 
   async function handleDelete(hostName) {
     confirmDialog.value = {
       isOpen: true,
-      title: '删除确认',
-      message: `确定要删除配置 "${hostName}" 吗？`,
+      title: t('app.deleteConfirmTitle'),
+      message: t('app.deleteConfirmMessage', { name: hostName }),
       confirmType: 'danger',
       onConfirm: async () => {
         confirmDialog.value.isOpen = false
@@ -123,7 +132,7 @@
           await window.sshApi.deleteHost(hostName)
           await loadHosts()
         } catch (e) {
-          showAlert('删除失败', e.message)
+          showAlert(t('app.deleteFailed'), e.message)
         }
       }
     }
@@ -132,8 +141,8 @@
   async function handleCopy(hostName) {
     confirmDialog.value = {
       isOpen: true,
-      title: '复制确认',
-      message: `确定要复制配置 "${hostName}" 吗？`,
+      title: t('app.copyConfirmTitle'),
+      message: t('app.copyConfirmMessage', { name: hostName }),
       confirmType: 'primary',
       onConfirm: async () => {
         confirmDialog.value.isOpen = false
@@ -141,7 +150,7 @@
           await window.sshApi.copyHost(hostName)
           await loadHosts()
         } catch (e) {
-          showAlert('复制失败', e.message)
+          showAlert(t('app.copyFailed'), e.message)
         }
       }
     }
@@ -251,18 +260,23 @@
 
   async function handleSSHConnect(hostName) {
     try {
-      await window.sshApi.connect(hostName)
-      // 可以显示成功提示
+      // ssh:connect 始终返回结果对象（{success, code?, params?}），失败码由语言包映射
+      const result = await window.sshApi.connect(hostName)
+      if (result && result.success === false) {
+        console.error('Failed to open SSH connection:', result)
+        showAlert(t('app.connectFailed'), translateError(result))
+        return
+      }
       console.log(`SSH connection opened for ${hostName}`)
     } catch (error) {
       console.error('Failed to open SSH connection:', error)
-      showAlert('连接失败', `无法打开SSH连接: ${error.message}`)
+      showAlert(t('app.connectFailed'), t('app.connectFailedMessage', { detail: error.message }))
     }
   }
 
   // 处理节点导入成功
   function handleNodeImported(data) {
-    showAlert('导入成功', `节点 "${data.importedNode.Host}" 已成功导入`, 'success')
+    showAlert(t('app.importSuccessTitle'), t('app.importSuccessMessage', { name: data.importedNode.Host }), 'success')
     // 重新加载本地节点列表
     loadHosts()
   }
@@ -368,14 +382,14 @@
                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             <span class="text-sm">
-              <template v-if="updateStatus === 'available'">
-                新版本 <strong>v{{ updateInfo.version }}</strong> 可用！
-              </template>
+              <i18n-t v-if="updateStatus === 'available'" keypath="update.available" tag="span">
+                <template #version><strong>v{{ updateInfo.version }}</strong></template>
+              </i18n-t>
               <template v-else-if="updateStatus === 'downloading'">
-                正在下载更新... {{ downloadProgress }}%
+                {{ $t('update.downloading', { percent: downloadProgress }) }}
               </template>
               <template v-else-if="updateStatus === 'downloaded'">
-                更新已下载完成，重启应用以完成安装
+                {{ $t('update.downloaded') }}
               </template>
             </span>
           </div>
@@ -383,7 +397,7 @@
             <template v-if="updateStatus === 'available'">
               <button @click="downloadUpdate"
                 class="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-md text-sm font-medium transition">
-                下载更新
+                {{ $t('update.download') }}
               </button>
             </template>
             <template v-else-if="updateStatus === 'downloading'">
@@ -395,10 +409,10 @@
             <template v-else-if="updateStatus === 'downloaded'">
               <button @click="installUpdate"
                 class="bg-white text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-md text-sm font-medium transition">
-                立即重启
+                {{ $t('update.restartNow') }}
               </button>
             </template>
-            <button @click="dismissUpdateBanner" class="p-1 hover:bg-white/20 rounded transition" title="稍后提醒">
+            <button @click="dismissUpdateBanner" class="p-1 hover:bg-white/20 rounded transition" :title="$t('update.later')">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                 stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -413,11 +427,19 @@
       <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 class="text-3xl font-bold text-gray-900 tracking-tight">SSH Config Manager</h1>
-          <p class="text-gray-500 text-sm mt-1">
-            Manage your local SSH configurations easily
-            <span v-if="currentVersion" @dblclick="checkForUpdates" class="ml-2 text-xs text-gray-400">v{{
+          <p class="text-gray-500 text-sm mt-1 flex items-center gap-2">
+            {{ $t('app.subtitle') }}
+            <span v-if="currentVersion" @dblclick="checkForUpdates" class="text-xs text-gray-400">v{{
               currentVersion
               }}</span>
+            <button @click="toggleLocale" :title="$t('app.switchLanguage')" type="button"
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {{ locale === 'zh-CN' ? '中文' : 'EN' }}
+            </button>
           </p>
         </div>
         <button @click="openAdd"
@@ -427,12 +449,12 @@
               d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
               clip-rule="evenodd" />
           </svg>
-          New Host
+          {{ $t('app.newHost') }}
         </button>
       </header>
 
       <div class="mb-8 relative group">
-        <input v-model="searchQuery" type="text" placeholder="Search hosts by alias, IP, or user..."
+        <input v-model="searchQuery" type="text" :placeholder="$t('app.searchPlaceholder')"
           class="w-full pl-12 pr-12 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-gray-700 placeholder-gray-400" />
         <span class="absolute left-4 top-3.5 text-gray-400 group-focus-within:text-blue-500 transition">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -442,7 +464,7 @@
         </span>
         <button v-if="searchQuery" @click="searchQuery = ''"
           class="absolute right-6 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition"
-          type="button" title="Clear search">
+          type="button" :title="$t('app.clearSearch')">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd"
               d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
@@ -458,7 +480,7 @@
 
       <div v-if="loading" class="text-center py-20">
         <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <p class="text-gray-500">Loading configurations...</p>
+        <p class="text-gray-500">{{ $t('app.loadingConfigs') }}</p>
       </div>
 
       <div v-else-if="error" class="text-center py-20 bg-red-50 rounded-xl border border-red-100">
@@ -499,7 +521,7 @@
                   <!-- 始终显示的SSH连接按钮 -->
                   <button @click="handleSSHConnect(host.Host)"
                     class="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-md transition"
-                    title="SSH连接">
+                    :title="$t('app.sshConnect')">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                       stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -511,7 +533,7 @@
                   <div class="xl:hidden flex items-center gap-1">
                     <ShareToggle :node-id="host.Host" :node-data="host" @share-changed="handleShareChanged" />
                     <button @click="openEdit(host)"
-                      class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition" title="编辑">
+                      class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition" :title="$t('app.edit')">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -520,7 +542,7 @@
                     </button>
                     <button @click="handleCopy(host.Host)"
                       class="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-md transition"
-                      title="复制">
+                      :title="$t('app.copy')">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -528,7 +550,7 @@
                       </svg>
                     </button>
                     <button @click="handleDelete(host.Host)"
-                      class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition" title="删除">
+                      class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition" :title="$t('app.delete')">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -541,7 +563,7 @@
                   <div class="hidden xl:flex relative" @mouseenter="openDropdown(host.Host)" @mouseleave="closeDropdown">
                     <button @click.stop="toggleDropdown(host.Host)"
                       class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-md transition"
-                      title="更多操作">
+                      :title="$t('app.moreActions')">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -554,7 +576,7 @@
                       <div v-if="dropdownOpen === host.Host" @click.stop
                         class="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10 min-w-[120px]">
                         <div class="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-                          <span class="text-xs text-gray-600">分享状态</span>
+                          <span class="text-xs text-gray-600">{{ $t('app.shareStatus') }}</span>
                           <ShareToggle :node-id="host.Host" :node-data="host" @share-changed="handleShareChanged" />
                         </div>
                         <button @click="openEdit(host); dropdownOpen = null"
@@ -564,7 +586,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                           </svg>
-                          编辑
+                          {{ $t('app.edit') }}
                         </button>
                         <button @click="handleCopy(host.Host); dropdownOpen = null"
                           class="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
@@ -573,7 +595,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                           </svg>
-                          复制
+                          {{ $t('app.copy') }}
                         </button>
                         <button @click="handleDelete(host.Host); dropdownOpen = null"
                           class="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
@@ -582,7 +604,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
-                          删除
+                          {{ $t('app.delete') }}
                         </button>
                       </div>
                     </Transition>
@@ -592,20 +614,20 @@
 
               <div class="text-sm text-gray-600 space-y-2.5 grow">
                 <div v-if="host.HostName" class="flex items-start">
-                  <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">HostName</span>
+                  <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">{{ $t('app.fields.hostName') }}</span>
                   <span class="font-mono text-gray-800 bg-gray-50 px-1.5 py-0.5 rounded text-xs select-all">{{
                     host.HostName }}</span>
                 </div>
                 <div v-if="host.User" class="flex items-center">
-                  <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">User</span>
+                  <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ $t('app.fields.user') }}</span>
                   <span class="text-gray-800 font-medium">{{ host.User }}</span>
                 </div>
                 <div v-if="host.Port" class="flex items-center">
-                  <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">Port</span>
+                  <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ $t('app.fields.port') }}</span>
                   <span class="text-gray-800">{{ host.Port }}</span>
                 </div>
                 <div v-if="host.IdentityFile" class="flex items-center">
-                  <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">Identity</span>
+                  <span class="w-20 text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ $t('app.fields.identity') }}</span>
                   <span class="truncate text-gray-500 text-xs" :title="host.IdentityFile">{{ host.IdentityFile }}</span>
                 </div>
               </div>
@@ -623,8 +645,8 @@
               d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
           </svg>
         </div>
-        <p class="font-medium text-lg">No hosts found</p>
-        <p class="text-sm text-gray-400 mt-1">Try adjusting your search or add a new host.</p>
+        <p class="font-medium text-lg">{{ $t('app.noHosts') }}</p>
+        <p class="text-sm text-gray-400 mt-1">{{ $t('app.noHostsHint') }}</p>
       </div>
     </div>
 

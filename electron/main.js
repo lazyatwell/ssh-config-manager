@@ -55,7 +55,8 @@ let mainWindow = null
 let networkManager = null
 
 /**
- * 打开SSH连接
+ * 打开SSH连接。始终返回结果对象（不抛异常）：
+ * 失败时带 code + params 供渲染进程 i18n 映射（errors.* 键），message 为兜底
  * @param {string} hostName - SSH主机别名
  */
 async function openSSHConnection(hostName) {
@@ -119,14 +120,14 @@ async function openSSHConnection(hostName) {
       }
       
       if (!success) {
-        throw new Error('No suitable terminal application found')
+        return { success: false, code: 'noTerminalFound', params: {}, message: 'No suitable terminal application found' }
       }
     }
-    
+
     return { success: true, message: `SSH connection opened for ${hostName}` }
   } catch (error) {
     console.error('Failed to open SSH connection:', error)
-    throw new Error(`Failed to open SSH connection: ${error.message}`)
+    return { success: false, code: 'generic', params: { detail: error.message }, message: error.message }
   }
 }
 
@@ -275,14 +276,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('ssh:delete-host', (_, host) => sshService.deleteHost(host))
   ipcMain.handle('ssh:reorder-hosts', (_, hostNames) => sshService.reorderHosts(hostNames))
   ipcMain.handle('ssh:copy-host', (_, hostName) => sshService.copyHost(hostName))
-  ipcMain.handle('ssh:connect', async (_, hostName) => {
-    try {
-      return await openSSHConnection(hostName)
-    } catch (error) {
-      console.error('Failed to open SSH connection:', error)
-      throw error
-    }
-  })
+  // 始终返回结果对象（{success, code?, params?}），失败不抛异常，由渲染进程映射文案
+  ipcMain.handle('ssh:connect', (_, hostName) => openSSHConnection(hostName))
   // 注意：payload 含临时密码，禁止打印日志；服务内部始终返回结果对象而不抛异常
   ipcMain.handle('ssh:copy-id', (_, payload) => copyPublicKey(payload))
   // IdentityFile 下拉数据源：列出 ~/.ssh 下的密钥、生成默认密钥

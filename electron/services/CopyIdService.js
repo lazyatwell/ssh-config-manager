@@ -40,11 +40,17 @@ async function fileExists(p) {
   }
 }
 
+// 统一的失败结果：code + params 供渲染进程 i18n 映射（errors.* 键），
+// message 为中文兜底（未登记的 code 或日志场景直接可读）
+function failure(code, params, message) {
+  return { success: false, code, params, message }
+}
+
 /**
  * 解析要拷贝的公钥文件路径
  * - 指定了 identityFile：展开 ~，非 .pub 结尾则追加 .pub（与 ssh-copy-id -i 行为一致）
  * - 未指定：按序探测 ~/.ssh 下的默认公钥
- * @returns {Promise<{ keyPath: string } | { error: string }>}
+ * @returns {Promise<{ keyPath: string } | { failure: object }>}
  */
 async function resolvePublicKeyPath(identityFile) {
   if (identityFile && identityFile.trim()) {
@@ -55,7 +61,7 @@ async function resolvePublicKeyPath(identityFile) {
     if (await fileExists(p)) {
       return { keyPath: p }
     }
-    return { error: `未找到公钥文件 ${p}，请检查 IdentityFile 路径，或先用 ssh-keygen 生成密钥` }
+    return { failure: failure('pubkeyNotFound', { path: p }, `未找到公钥文件 ${p}，请检查 IdentityFile 路径，或先用 ssh-keygen 生成密钥`) }
   }
 
   for (const name of DEFAULT_PUBLIC_KEYS) {
@@ -65,32 +71,32 @@ async function resolvePublicKeyPath(identityFile) {
     }
   }
   return {
-    error: '未找到默认公钥（~/.ssh 下的 id_ed25519.pub / id_ecdsa.pub / id_rsa.pub），请先用 ssh-keygen 生成密钥，或在 IdentityFile 中指定私钥路径'
+    failure: failure('noDefaultPubkey', {}, '未找到默认公钥（~/.ssh 下的 id_ed25519.pub / id_ecdsa.pub / id_rsa.pub），请先用 ssh-keygen 生成密钥，或在 IdentityFile 中指定私钥路径')
   }
 }
 
 /**
- * 将 ssh2 连接错误映射为具体的中文提示
+ * 将 ssh2 连接错误映射为错误码 + 中文兜底提示
  */
 function mapConnectionError(err) {
   const msg = err?.message || String(err)
   if (err?.level === 'client-authentication' || msg.includes('All configured authentication methods failed')) {
-    return '认证失败：用户名或密码错误'
+    return failure('authFailed', {}, '认证失败：用户名或密码错误')
   }
   if (err?.code === 'ECONNREFUSED' || msg.includes('ECONNREFUSED')) {
-    return '连接被拒绝：请检查端口是否正确、远程主机 sshd 是否运行'
+    return failure('connRefused', {}, '连接被拒绝：请检查端口是否正确、远程主机 sshd 是否运行')
   }
   if (err?.level === 'client-timeout' || err?.code === 'ETIMEDOUT' || msg.includes('Timed out')) {
-    return '连接超时：主机不可达或端口不通'
+    return failure('connTimeout', {}, '连接超时：主机不可达或端口不通')
   }
   if (err?.code === 'ENOTFOUND' || err?.code === 'EHOSTUNREACH' || msg.includes('ENOTFOUND') || msg.includes('EHOSTUNREACH')) {
-    return '无法解析或访问主机：请检查 HostName 是否正确'
+    return failure('hostUnreachable', {}, '无法解析或访问主机：请检查 HostName 是否正确')
   }
   // ssh2 在 socket 提前断开（不可路由、被 RST 等）时给出的通用错误
   if (msg.includes('Connection lost before handshake') || msg.includes('Socket is closed')) {
-    return '连接失败：主机不可达或连接中断，请检查 HostName、Port 与网络'
+    return failure('connLost', {}, '连接失败：主机不可达或连接中断，请检查 HostName、Port 与网络')
   }
-  return msg
+  return failure('generic', { detail: msg }, msg)
 }
 
 /**
@@ -156,13 +162,13 @@ function execCommand(conn, command, stdinData = null) {
  * @param {string} options.username - 登录用户名
  * @param {string} options.password - 登录密码（仅临时使用）
  * @param {string} [options.identityFile] - 私钥路径（自动追加 .pub），为空则用默认公钥
- * @returns {Promise<{ success: true, alreadyExists: boolean, keyPath: string } | { success: false, message: string }>}
+ * @returns {Promise<{ success: true, alreadyExists: boolean, keyPath: string } | { success: false, code: string, params: object, message: string }>}
  */
 export async function copyPublicKey({ host, port, username, password, identityFile }) {
   // 1. 解析公钥
   const resolved = await resolvePublicKeyPath(identityFile)
-  if (resolved.error) {
-    return { success: false, message: resolved.error }
+  if (resolved.failure) {
+    return resolved.failure
   }
   const { keyPath } = resolved
 
@@ -172,17 +178,17 @@ export async function copyPublicKey({ host, port, username, password, identityFi
     const content = await fs.readFile(keyPath, 'utf8')
     keyLine = content.split(/\r?\n/).map(line => line.trim()).find(line => line.length > 0) || ''
   } catch (err) {
-    return { success: false, message: `读取公钥文件失败：${err.message}` }
+    return failure('pubkeyReadFailed', { detail: err.message }, `读取公钥文件失败：${err.message}`)
   }
   if (!/^(ssh-|ecdsa-|sk-)/.test(keyLine)) {
-    return { success: false, message: `公钥文件格式无效：${keyPath}` }
+    return failure('pubkeyInvalid', { path: keyPath }, `公钥文件格式无效：${keyPath}`)
   }
 
   // 3. 预检 DNS（ssh2 对解析失败只报通用错误，这里提前给出精确提示）
   try {
     await dns.lookup(host)
   } catch {
-    return { success: false, message: `无法解析主机 ${host}：请检查 HostName 是否正确` }
+    return failure('dnsFailed', { host }, `无法解析主机 ${host}：请检查 HostName 是否正确`)
   }
 
   // 4. 建立连接
@@ -190,7 +196,7 @@ export async function copyPublicKey({ host, port, username, password, identityFi
   try {
     conn = await connectClient({ host, port, username, password })
   } catch (err) {
-    return { success: false, message: mapConnectionError(err) }
+    return mapConnectionError(err)
   }
 
   try {
@@ -209,17 +215,14 @@ export async function copyPublicKey({ host, port, username, password, identityFi
     // 6. 追加公钥（内容经 stdin 写入）
     const result = await execCommand(conn, INSTALL_COMMAND, `${keyLine}\n`)
     if (result.code !== 0) {
-      const detail = result.stderr.trim()
-      return {
-        success: false,
-        message: `远程写入 authorized_keys 失败（exit ${result.code}）${detail ? '：' + detail : ''}`
-      }
+      const detail = result.stderr.trim() || `exit ${result.code}`
+      return failure('remoteWriteFailed', { detail }, `远程写入 authorized_keys 失败：${detail}`)
     }
 
     console.log(`Public key installed on ${host} from ${keyPath}`)
     return { success: true, alreadyExists: false, keyPath }
   } catch (err) {
-    return { success: false, message: `执行远程命令失败：${err.message}` }
+    return failure('remoteExecFailed', { detail: err.message }, `执行远程命令失败：${err.message}`)
   } finally {
     conn.end()
   }

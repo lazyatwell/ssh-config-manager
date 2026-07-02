@@ -1,5 +1,9 @@
 <script setup>
 import { ref, watch, computed, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { translateError } from '../i18n/index.js'
+
+const { t } = useI18n()
 
 const props = defineProps({
   isOpen: Boolean,
@@ -22,7 +26,10 @@ const errors = ref({})
 // Copy ID 临时密码：刻意不放进 form，从结构上保证不会进入 save payload / 配置文件
 const password = ref('')
 const copying = ref(false)
-const copyError = ref('')
+// 失败信息存主进程返回的 { code, params, message } 对象（或 { message }），
+// 渲染时经 translateError 映射，切换语言后实时更新
+const copyError = ref(null)
+const copyErrorText = computed(() => translateError(copyError.value))
 // 密码明文显示开关
 const showPassword = ref(false)
 
@@ -36,7 +43,8 @@ const isEditMode = computed(() => !!props.initialData)
 const identityFiles = ref([])
 const identityLoading = ref(false)
 const generating = ref(false)
-const generateError = ref('')
+const generateError = ref(null)
+const generateErrorText = computed(() => translateError(generateError.value))
 
 // 编辑历史配置时当前值可能不在 ~/.ssh 列表中（如自定义路径），补进选项避免回显丢失
 const identityOptions = computed(() => {
@@ -64,10 +72,10 @@ async function loadIdentityFiles() {
 // 调用 ssh-keygen 生成默认密钥，成功后刷新下拉列表并选中新密钥
 async function generateIdentityKey() {
   if (!window.sshApi || !window.sshApi.generateKey) {
-    generateError.value = 'SSH API 不可用（是否在 Electron 中运行？）'
+    generateError.value = { message: t('hostEditor.apiUnavailable') }
     return
   }
-  generateError.value = ''
+  generateError.value = null
   generating.value = true
   try {
     const result = await window.sshApi.generateKey()
@@ -75,10 +83,10 @@ async function generateIdentityKey() {
       await loadIdentityFiles()
       form.value.IdentityFile = result.keyPath || form.value.IdentityFile
     } else {
-      generateError.value = (result && result.message) || '未知错误'
+      generateError.value = result || { code: 'unknown' }
     }
   } catch (e) {
-    generateError.value = e.message
+    generateError.value = { message: e.message }
   } finally {
     generating.value = false
   }
@@ -110,7 +118,7 @@ function isValidHostName(str) {
   return isValidIP(str) || isValidDomain(str)
 }
 
-// 验证表单
+// 验证表单。errors 里存语言包 key（模板中 $t() 渲染），切换语言时报错信息实时更新
 function validate() {
   const errs = {}
 
@@ -119,34 +127,34 @@ function validate() {
   //   编辑模式下未改动的历史值放行，保证旧条目仍可修改其他字段或删除）
   const originalHost = (props.initialData && props.initialData.Host) || ''
   if (!form.value.Host) {
-    errs.Host = 'Host 为必填项'
+    errs.Host = 'hostEditor.validation.hostRequired'
   } else if (form.value.Host.length > 50) {
-    errs.Host = 'Host 长度不能超过50字符'
+    errs.Host = 'hostEditor.validation.hostTooLong'
   } else if (/\s/.test(form.value.Host) && form.value.Host !== originalHost) {
-    errs.Host = 'Host 不能包含空格，可用 - 代替'
+    errs.Host = 'hostEditor.validation.hostNoSpaces'
   } else if (/[*?!]/.test(form.value.Host) && form.value.Host !== originalHost) {
-    errs.Host = 'Host 别名不能包含通配字符 * ? !'
+    errs.Host = 'hostEditor.validation.hostNoWildcards'
   }
 
   // HostName: 必填，需符合 IP 或域名格式，不超过50字符
   if (!form.value.HostName) {
-    errs.HostName = 'HostName 为必填项'
+    errs.HostName = 'hostEditor.validation.hostNameRequired'
   } else if (form.value.HostName.length > 50) {
-    errs.HostName = 'HostName 长度不能超过50字符'
+    errs.HostName = 'hostEditor.validation.hostNameTooLong'
   } else if (!isValidHostName(form.value.HostName)) {
-    errs.HostName = 'HostName 必须是有效的 IP 或域名格式'
+    errs.HostName = 'hostEditor.validation.hostNameInvalid'
   }
 
   // User: 编辑模式下必填，新增模式下可空（保存时默认 root）
   if (isEditMode.value) {
     if (!form.value.User) {
-      errs.User = 'User 为必填项'
+      errs.User = 'hostEditor.validation.userRequired'
     } else if (form.value.User.length > 50) {
-      errs.User = 'User 长度不能超过50字符'
+      errs.User = 'hostEditor.validation.userTooLong'
     }
   } else {
     if (form.value.User && form.value.User.length > 50) {
-      errs.User = 'User 长度不能超过50字符'
+      errs.User = 'hostEditor.validation.userTooLong'
     }
   }
 
@@ -157,30 +165,30 @@ function validate() {
     } else {
       const portNum = parseInt(form.value.Port, 10)
       if (isNaN(portNum) || !/^\d+$/.test(form.value.Port)) {
-        errs.Port = 'Port 必须为数字'
+        errs.Port = 'hostEditor.validation.portInvalid'
       } else if (portNum < 1 || portNum > 65535) {
-        errs.Port = 'Port 必须在 1-65535 之间'
+        errs.Port = 'hostEditor.validation.portRange'
       }
     }
   } else {
     if (form.value.Port) {
       const portNum = parseInt(form.value.Port, 10)
       if (isNaN(portNum) || !/^\d+$/.test(form.value.Port)) {
-        errs.Port = 'Port 必须为数字'
+        errs.Port = 'hostEditor.validation.portInvalid'
       } else if (portNum < 1 || portNum > 65535) {
-        errs.Port = 'Port 必须在 1-65535 之间'
+        errs.Port = 'hostEditor.validation.portRange'
       }
     }
   }
 
   // IdentityFile: 可选，不超过255字符
   if (form.value.IdentityFile && form.value.IdentityFile.length > 255) {
-    errs.IdentityFile = 'IdentityFile 长度不能超过255字符'
+    errs.IdentityFile = 'hostEditor.validation.identityTooLong'
   }
 
   // Remark: 可选，不超过255字符
   if (form.value.Remark && form.value.Remark.length > 255) {
-    errs.Remark = 'Remark 长度不能超过255字符'
+    errs.Remark = 'hostEditor.validation.remarkTooLong'
   }
 
   errors.value = errs
@@ -194,8 +202,8 @@ watch(() => props.isOpen, (isOpen) => {
     password.value = ''
     showPassword.value = false
     copying.value = false
-    copyError.value = ''
-    generateError.value = ''
+    copyError.value = null
+    generateError.value = null
     loadIdentityFiles()
     const data = props.initialData
     if (data) {
@@ -233,7 +241,7 @@ watch(() => form.value.Host, (val) => {
   }
 })
 
-const title = computed(() => props.initialData ? 'Edit Host' : 'New Host')
+const title = computed(() => props.initialData ? t('hostEditor.titleEdit') : t('hostEditor.titleNew'))
 
 function save() {
   if (!validate()) {
@@ -265,16 +273,16 @@ const canCopyId = computed(() =>
 // 拷贝公钥到远程主机（ssh-copy-id 等价实现，仅新增模式）
 // 成功后直接走 save 逻辑；密码仅本次使用，不进入 save payload
 async function copyId() {
-  copyError.value = ''
+  copyError.value = null
   const ok = validate()
   if (!password.value) {
-    errors.value = { ...errors.value, Password: '使用 Copy ID 需要输入密码' }
+    errors.value = { ...errors.value, Password: 'hostEditor.validation.passwordRequired' }
   }
   if (!ok || !password.value) {
     return
   }
   if (!window.sshApi || !window.sshApi.copyId) {
-    copyError.value = 'SSH API 不可用（是否在 Electron 中运行？）'
+    copyError.value = { message: t('hostEditor.apiUnavailable') }
     return
   }
 
@@ -292,10 +300,10 @@ async function copyId() {
       // 拷贝成功，直接执行保存逻辑（payload 不含密码）
       save()
     } else {
-      copyError.value = (result && result.message) || '未知错误'
+      copyError.value = result || { code: 'unknown' }
     }
   } catch (e) {
-    copyError.value = e.message
+    copyError.value = { message: e.message }
   } finally {
     copying.value = false
   }
@@ -323,10 +331,10 @@ function inputClass(field) {
       <div class="space-y-4">
         <div>
           <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-            Host (Alias) <span class="text-red-400">*</span>
+            {{ $t('hostEditor.labels.host') }} <span class="text-red-400">*</span>
           </label>
           <div class="relative group">
-            <input ref="hostInputRef" v-model="form.Host" type="text" maxlength="50" :class="inputClass('Host')" placeholder="myserver" />
+            <input ref="hostInputRef" v-model="form.Host" type="text" maxlength="50" :class="inputClass('Host')" :placeholder="$t('hostEditor.placeholders.host')" />
             <button
               v-show="form.Host"
               type="button"
@@ -338,15 +346,15 @@ function inputClass(field) {
               </svg>
             </button>
           </div>
-          <p v-if="errors.Host" class="text-xs text-red-500 mt-1">{{ errors.Host }}</p>
+          <p v-if="errors.Host" class="text-xs text-red-500 mt-1">{{ $t(errors.Host) }}</p>
         </div>
         
         <div>
           <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-            HostName (IP/Domain) <span class="text-red-400">*</span>
+            {{ $t('hostEditor.labels.hostName') }} <span class="text-red-400">*</span>
           </label>
           <div class="relative group">
-            <input v-model="form.HostName" type="text" maxlength="50" :class="inputClass('HostName')" placeholder="192.168.1.1" />
+            <input v-model="form.HostName" type="text" maxlength="50" :class="inputClass('HostName')" :placeholder="$t('hostEditor.placeholders.hostName')" />
             <button
               v-show="form.HostName"
               type="button"
@@ -358,16 +366,16 @@ function inputClass(field) {
               </svg>
             </button>
           </div>
-          <p v-if="errors.HostName" class="text-xs text-red-500 mt-1">{{ errors.HostName }}</p>
+          <p v-if="errors.HostName" class="text-xs text-red-500 mt-1">{{ $t(errors.HostName) }}</p>
         </div>
         
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-              User <span v-if="isEditMode" class="text-red-400">*</span>
+              {{ $t('hostEditor.labels.user') }} <span v-if="isEditMode" class="text-red-400">*</span>
             </label>
             <div class="relative group">
-              <input v-model="form.User" type="text" maxlength="50" :class="inputClass('User')" :placeholder="isEditMode ? 'root' : 'root (默认)'" />
+              <input v-model="form.User" type="text" maxlength="50" :class="inputClass('User')" :placeholder="isEditMode ? $t('hostEditor.placeholders.user') : $t('hostEditor.placeholders.userDefault')" />
               <button
                 v-show="form.User"
                 type="button"
@@ -379,14 +387,14 @@ function inputClass(field) {
                 </svg>
               </button>
             </div>
-            <p v-if="errors.User" class="text-xs text-red-500 mt-1">{{ errors.User }}</p>
+            <p v-if="errors.User" class="text-xs text-red-500 mt-1">{{ $t(errors.User) }}</p>
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-              Port
+              {{ $t('hostEditor.labels.port') }}
             </label>
             <div class="relative group">
-              <input v-model="form.Port" type="text" maxlength="5" :class="inputClass('Port')" :placeholder="isEditMode ? '22' : '22 (默认)'" />
+              <input v-model="form.Port" type="text" maxlength="5" :class="inputClass('Port')" :placeholder="isEditMode ? $t('hostEditor.placeholders.port') : $t('hostEditor.placeholders.portDefault')" />
               <button
                 v-show="form.Port"
                 type="button"
@@ -398,15 +406,15 @@ function inputClass(field) {
                 </svg>
               </button>
             </div>
-            <p v-if="errors.Port" class="text-xs text-red-500 mt-1">{{ errors.Port }}</p>
+            <p v-if="errors.Port" class="text-xs text-red-500 mt-1">{{ $t(errors.Port) }}</p>
           </div>
         </div>
         
         <div>
-          <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">IdentityFile (Key Path)</label>
+          <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{{ $t('hostEditor.labels.identityFile') }}</label>
           <div class="flex items-stretch gap-2">
             <select v-model="form.IdentityFile" :class="inputClass('IdentityFile')">
-              <option value="">不使用密钥</option>
+              <option value="">{{ $t('hostEditor.noKeyOption') }}</option>
               <option v-for="key in identityOptions" :key="key" :value="key">{{ key }}</option>
             </select>
             <button
@@ -416,20 +424,20 @@ function inputClass(field) {
               :disabled="generating"
               class="shrink-0 px-3 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {{ generating ? '生成中...' : '新增' }}
+              {{ generating ? $t('hostEditor.generating') : $t('hostEditor.generateKey') }}
             </button>
           </div>
-          <p v-if="errors.IdentityFile" class="text-xs text-red-500 mt-1">{{ errors.IdentityFile }}</p>
-          <p v-else-if="generateError" class="text-xs text-red-500 mt-1 break-all">生成密钥失败：{{ generateError }}</p>
+          <p v-if="errors.IdentityFile" class="text-xs text-red-500 mt-1">{{ $t(errors.IdentityFile) }}</p>
+          <p v-else-if="generateErrorText" class="text-xs text-red-500 mt-1 break-all">{{ $t('hostEditor.keygenFailed', { msg: generateErrorText }) }}</p>
         </div>
 
         <div v-if="!isEditMode">
           <div class="flex items-center gap-2 mb-1">
-            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Password</label>
+            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ $t('hostEditor.labels.password') }}</label>
             <button
               type="button"
               @click="showPassword = !showPassword"
-              :title="showPassword ? '隐藏密码' : '显示密码'"
+              :title="showPassword ? $t('hostEditor.hidePassword') : $t('hostEditor.showPassword')"
               class="text-gray-400 hover:text-gray-600 transition-colors"
             >
               <svg v-if="!showPassword" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -442,7 +450,7 @@ function inputClass(field) {
             </button>
           </div>
           <div class="relative group">
-            <input v-model="password" :type="showPassword ? 'text' : 'password'" :maxlength="128" :class="inputClass('Password')" placeholder="仅用于 Copy ID 拷贝公钥" autocomplete="new-password" />
+            <input v-model="password" :type="showPassword ? 'text' : 'password'" :maxlength="128" :class="inputClass('Password')" :placeholder="$t('hostEditor.placeholders.password')" autocomplete="new-password" />
             <button
               v-show="password"
               type="button"
@@ -454,14 +462,14 @@ function inputClass(field) {
               </svg>
             </button>
           </div>
-          <p v-if="errors.Password" class="text-xs text-red-500 mt-1">{{ errors.Password }}</p>
-          <p v-else class="text-xs text-gray-400 mt-1">仅临时用于 Copy ID 拷贝公钥到远程主机，不会保存到配置文件</p>
+          <p v-if="errors.Password" class="text-xs text-red-500 mt-1">{{ $t(errors.Password) }}</p>
+          <p v-else class="text-xs text-gray-400 mt-1">{{ $t('hostEditor.passwordHint') }}</p>
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Remark</label>
+          <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{{ $t('hostEditor.labels.remark') }}</label>
           <div class="relative group">
-            <input v-model="form.Remark" type="text" :maxlength="255" :class="inputClass('Remark')" placeholder="例如：生产环境主服务器" />
+            <input v-model="form.Remark" type="text" :maxlength="255" :class="inputClass('Remark')" :placeholder="$t('hostEditor.placeholders.remark')" />
             <button
               v-show="form.Remark"
               type="button"
@@ -473,18 +481,18 @@ function inputClass(field) {
               </svg>
             </button>
           </div>
-          <p v-if="errors.Remark" class="text-xs text-red-500 mt-1">{{ errors.Remark }}</p>
+          <p v-if="errors.Remark" class="text-xs text-red-500 mt-1">{{ $t(errors.Remark) }}</p>
         </div>
       </div>
       
-      <div v-if="copyError" class="mt-6 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600 break-all">
-        Copy ID 失败：{{ copyError }}
+      <div v-if="copyErrorText" class="mt-6 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600 break-all">
+        {{ $t('hostEditor.copyIdFailed', { msg: copyErrorText }) }}
       </div>
 
       <div class="mt-8 flex justify-end space-x-3">
-        <button @click="$emit('close')" :disabled="copying" class="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition disabled:opacity-60 disabled:cursor-not-allowed">Cancel</button>
-        <button v-if="!isEditMode" @click="copyId" :disabled="copying || !canCopyId" :title="canCopyId ? '' : '需填写 User、IdentityFile 和 Password'" class="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed">{{ copying ? '拷贝中...' : 'Copy ID' }}</button>
-        <button @click="save" :disabled="copying" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed">Save</button>
+        <button @click="$emit('close')" :disabled="copying" class="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition disabled:opacity-60 disabled:cursor-not-allowed">{{ $t('common.cancel') }}</button>
+        <button v-if="!isEditMode" @click="copyId" :disabled="copying || !canCopyId" :title="canCopyId ? '' : $t('hostEditor.copyIdHint')" class="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed">{{ copying ? $t('hostEditor.copying') : $t('hostEditor.copyId') }}</button>
+        <button @click="save" :disabled="copying" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed">{{ $t('common.save') }}</button>
       </div>
     </div>
   </div>
