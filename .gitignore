@@ -5,3 +5,4 @@ release
 *.zip
 *.tgz
 .kiro
+/.vscode

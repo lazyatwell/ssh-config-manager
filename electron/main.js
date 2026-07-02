@@ -6,6 +6,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import electronUpdater from 'electron-updater'
 import * as sshService from './ssh-service.js'
+import { copyPublicKey } from './services/CopyIdService.js'
 import { NetworkManager } from './services/NetworkManager.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -282,6 +283,11 @@ app.whenReady().then(async () => {
       throw error
     }
   })
+  // 注意：payload 含临时密码，禁止打印日志；服务内部始终返回结果对象而不抛异常
+  ipcMain.handle('ssh:copy-id', (_, payload) => copyPublicKey(payload))
+  // IdentityFile 下拉数据源：列出 ~/.ssh 下的密钥、生成默认密钥
+  ipcMain.handle('ssh:list-keys', () => sshService.listIdentityFiles())
+  ipcMain.handle('ssh:generate-key', () => sshService.generateDefaultKey())
 
   // Register IPC handlers for network sharing
   ipcMain.handle('network:get-status', async () => {

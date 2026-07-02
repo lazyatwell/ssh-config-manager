@@ -93,9 +93,19 @@
 
   async function handleSave(data) {
     try {
+      // 编辑模式会带 originalHost，新增模式没有
+      const isNew = !data.originalHost
       await window.sshApi.saveHost(data)
       isEditorOpen.value = false
       await loadHosts()
+      // 新增节点在配置文件里仍是末尾追加，仅界面上移到列表最前便于查看
+      if (isNew) {
+        const idx = hosts.value.findIndex(h => h.Host === data.Host)
+        if (idx > 0) {
+          const [added] = hosts.value.splice(idx, 1)
+          hosts.value.unshift(added)
+        }
+      }
     } catch (e) {
       showAlert('保存失败', e.message)
     }

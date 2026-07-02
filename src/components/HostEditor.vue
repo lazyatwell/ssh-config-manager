@@ -19,11 +19,73 @@ const form = ref({
 
 const errors = ref({})
 
+// Copy ID 临时密码：刻意不放进 form，从结构上保证不会进入 save payload / 配置文件
+const password = ref('')
+const copying = ref(false)
+const copyError = ref('')
+// 密码明文显示开关
+const showPassword = ref(false)
+
 // Host 输入框引用，用于自动聚焦
 const hostInputRef = ref(null)
 
 // 是否为编辑模式
 const isEditMode = computed(() => !!props.initialData)
+
+// IdentityFile 下拉选项：来自 ~/.ssh 下的 .pub 公钥（不带 .pub 后缀）
+const identityFiles = ref([])
+const identityLoading = ref(false)
+const generating = ref(false)
+const generateError = ref('')
+
+// 编辑历史配置时当前值可能不在 ~/.ssh 列表中（如自定义路径），补进选项避免回显丢失
+const identityOptions = computed(() => {
+  const opts = [...identityFiles.value]
+  if (form.value.IdentityFile && !opts.includes(form.value.IdentityFile)) {
+    opts.unshift(form.value.IdentityFile)
+  }
+  return opts
+})
+
+async function loadIdentityFiles() {
+  if (!window.sshApi || !window.sshApi.listKeys) {
+    return
+  }
+  identityLoading.value = true
+  try {
+    identityFiles.value = await window.sshApi.listKeys()
+  } catch (e) {
+    console.error('Failed to load identity files:', e)
+  } finally {
+    identityLoading.value = false
+  }
+}
+
+// 调用 ssh-keygen 生成默认密钥，成功后刷新下拉列表并选中新密钥
+async function generateIdentityKey() {
+  if (!window.sshApi || !window.sshApi.generateKey) {
+    generateError.value = 'SSH API 不可用（是否在 Electron 中运行？）'
+    return
+  }
+  generateError.value = ''
+  generating.value = true
+  try {
+    const result = await window.sshApi.generateKey()
+    if (result && result.success) {
+      await loadIdentityFiles()
+      form.value.IdentityFile = result.keyPath || form.value.IdentityFile
+    } else {
+      generateError.value = (result && result.message) || '未知错误'
+    }
+  } catch (e) {
+    generateError.value = e.message
+  } finally {
+    generating.value = false
+  }
+}
+
+// 启动时预加载一次，弹窗每次打开时再刷新
+loadIdentityFiles()
 
 // 验证 IP 地址格式
 function isValidIP(str) {
@@ -52,11 +114,18 @@ function isValidHostName(str) {
 function validate() {
   const errs = {}
 
-  // Host: 必填，不超过50字符
+  // Host: 必填，不超过50字符，且不能包含空格/通配字符
+  // （"Host a b" 在 SSH 中是多个 pattern，会导致条目无法编辑/删除；
+  //   编辑模式下未改动的历史值放行，保证旧条目仍可修改其他字段或删除）
+  const originalHost = (props.initialData && props.initialData.Host) || ''
   if (!form.value.Host) {
     errs.Host = 'Host 为必填项'
   } else if (form.value.Host.length > 50) {
     errs.Host = 'Host 长度不能超过50字符'
+  } else if (/\s/.test(form.value.Host) && form.value.Host !== originalHost) {
+    errs.Host = 'Host 不能包含空格，可用 - 代替'
+  } else if (/[*?!]/.test(form.value.Host) && form.value.Host !== originalHost) {
+    errs.Host = 'Host 别名不能包含通配字符 * ? !'
   }
 
   // HostName: 必填，需符合 IP 或域名格式，不超过50字符
@@ -122,6 +191,12 @@ function validate() {
 watch(() => props.isOpen, (isOpen) => {
   if (isOpen) {
     errors.value = {}
+    password.value = ''
+    showPassword.value = false
+    copying.value = false
+    copyError.value = ''
+    generateError.value = ''
+    loadIdentityFiles()
     const data = props.initialData
     if (data) {
       form.value = {
@@ -151,6 +226,13 @@ watch(() => props.isOpen, (isOpen) => {
   }
 }, { immediate: true })
 
+// 新增模式下实时把 Host 中的空白替换为短横杠（输入或粘贴时即生效）
+watch(() => form.value.Host, (val) => {
+  if (!isEditMode.value && val && /\s/.test(val)) {
+    form.value.Host = val.replace(/\s+/g, '-')
+  }
+})
+
 const title = computed(() => props.initialData ? 'Edit Host' : 'New Host')
 
 function save() {
@@ -175,6 +257,50 @@ function save() {
   emit('save', payload)
 }
 
+// User / IdentityFile / Password 任一为空时禁用 Copy ID（拷贝公钥三者缺一不可）
+const canCopyId = computed(() =>
+  !!(form.value.User && form.value.IdentityFile && password.value)
+)
+
+// 拷贝公钥到远程主机（ssh-copy-id 等价实现，仅新增模式）
+// 成功后直接走 save 逻辑；密码仅本次使用，不进入 save payload
+async function copyId() {
+  copyError.value = ''
+  const ok = validate()
+  if (!password.value) {
+    errors.value = { ...errors.value, Password: '使用 Copy ID 需要输入密码' }
+  }
+  if (!ok || !password.value) {
+    return
+  }
+  if (!window.sshApi || !window.sshApi.copyId) {
+    copyError.value = 'SSH API 不可用（是否在 Electron 中运行？）'
+    return
+  }
+
+  copying.value = true
+  try {
+    const result = await window.sshApi.copyId({
+      host: form.value.HostName,
+      // 与 save 相同的默认值语义：Port 默认 22，User 默认 root
+      port: form.value.Port || 22,
+      username: form.value.User || 'root',
+      password: password.value,
+      identityFile: form.value.IdentityFile
+    })
+    if (result && result.success) {
+      // 拷贝成功，直接执行保存逻辑（payload 不含密码）
+      save()
+    } else {
+      copyError.value = (result && result.message) || '未知错误'
+    }
+  } catch (e) {
+    copyError.value = e.message
+  } finally {
+    copying.value = false
+  }
+}
+
 // 清空指定字段
 function clearField(field) {
   form.value[field] = ''
@@ -187,11 +313,10 @@ function inputClass(field) {
     return `${base} border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-100`
   }
   return `${base} border-gray-200 bg-gray-50 focus:border-blue-500 focus:ring-2 focus:ring-blue-100`
-}
-</script>
+}</script>
 
 <template>
-  <div v-if="isOpen" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm" @click.self="$emit('close')">
+  <div v-if="isOpen" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm" @click.self="!copying && $emit('close')">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 transform transition-all">
       <h2 class="text-xl font-bold mb-4 text-gray-800">{{ title }}</h2>
       
@@ -279,12 +404,49 @@ function inputClass(field) {
         
         <div>
           <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">IdentityFile (Key Path)</label>
-          <div class="relative group">
-            <input v-model="form.IdentityFile" type="text" :maxlength="255" :class="inputClass('IdentityFile')" placeholder="~/.ssh/id_rsa" />
+          <div class="flex items-stretch gap-2">
+            <select v-model="form.IdentityFile" :class="inputClass('IdentityFile')">
+              <option value="">不使用密钥</option>
+              <option v-for="key in identityOptions" :key="key" :value="key">{{ key }}</option>
+            </select>
             <button
-              v-show="form.IdentityFile"
+              v-if="!identityLoading && identityFiles.length === 0"
               type="button"
-              @click="clearField('IdentityFile')"
+              @click="generateIdentityKey"
+              :disabled="generating"
+              class="shrink-0 px-3 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {{ generating ? '生成中...' : '新增' }}
+            </button>
+          </div>
+          <p v-if="errors.IdentityFile" class="text-xs text-red-500 mt-1">{{ errors.IdentityFile }}</p>
+          <p v-else-if="generateError" class="text-xs text-red-500 mt-1 break-all">生成密钥失败：{{ generateError }}</p>
+        </div>
+
+        <div v-if="!isEditMode">
+          <div class="flex items-center gap-2 mb-1">
+            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Password</label>
+            <button
+              type="button"
+              @click="showPassword = !showPassword"
+              :title="showPassword ? '隐藏密码' : '显示密码'"
+              class="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <svg v-if="!showPassword" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+              </svg>
+            </button>
+          </div>
+          <div class="relative group">
+            <input v-model="password" :type="showPassword ? 'text' : 'password'" :maxlength="128" :class="inputClass('Password')" placeholder="仅用于 Copy ID 拷贝公钥" autocomplete="new-password" />
+            <button
+              v-show="password"
+              type="button"
+              @click="password = ''"
               class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -292,7 +454,8 @@ function inputClass(field) {
               </svg>
             </button>
           </div>
-          <p v-if="errors.IdentityFile" class="text-xs text-red-500 mt-1">{{ errors.IdentityFile }}</p>
+          <p v-if="errors.Password" class="text-xs text-red-500 mt-1">{{ errors.Password }}</p>
+          <p v-else class="text-xs text-gray-400 mt-1">仅临时用于 Copy ID 拷贝公钥到远程主机，不会保存到配置文件</p>
         </div>
 
         <div>
@@ -314,9 +477,14 @@ function inputClass(field) {
         </div>
       </div>
       
+      <div v-if="copyError" class="mt-6 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600 break-all">
+        Copy ID 失败：{{ copyError }}
+      </div>
+
       <div class="mt-8 flex justify-end space-x-3">
-        <button @click="$emit('close')" class="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition">Cancel</button>
-        <button @click="save" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm transition">Save</button>
+        <button @click="$emit('close')" :disabled="copying" class="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition disabled:opacity-60 disabled:cursor-not-allowed">Cancel</button>
+        <button v-if="!isEditMode" @click="copyId" :disabled="copying || !canCopyId" :title="canCopyId ? '' : '需填写 User、IdentityFile 和 Password'" class="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed">{{ copying ? '拷贝中...' : 'Copy ID' }}</button>
+        <button @click="save" :disabled="copying" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm transition disabled:opacity-60 disabled:cursor-not-allowed">Save</button>
       </div>
     </div>
   </div>

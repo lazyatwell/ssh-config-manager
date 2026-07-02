@@ -7,6 +7,12 @@ contextBridge.exposeInMainWorld('sshApi', {
   reorderHosts: (hostNames) => ipcRenderer.invoke('ssh:reorder-hosts', hostNames),
   copyHost: (hostName) => ipcRenderer.invoke('ssh:copy-host', hostName),
   connect: (hostName) => ipcRenderer.invoke('ssh:connect', hostName),
+  // 拷贝公钥到远程主机（ssh-copy-id 等价），payload 中的密码仅临时使用
+  copyId: (payload) => ipcRenderer.invoke('ssh:copy-id', payload),
+  // 列出 ~/.ssh 下的密钥（IdentityFile 下拉数据源，不带 .pub 后缀）
+  listKeys: () => ipcRenderer.invoke('ssh:list-keys'),
+  // 调用 ssh-keygen 生成默认密钥
+  generateKey: () => ipcRenderer.invoke('ssh:generate-key'),
 })
 
 contextBridge.exposeInMainWorld('updaterApi', {

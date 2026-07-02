@@ -1,5 +1,22 @@
+allowBuilds:
+  cpu-features: false
+  electron: true
+  electron-winstaller: false
+  esbuild: false
+  phantomjs-prebuilt: false
+  ssh2: false
+
 ignoredBuiltDependencies:
+  - cpu-features
+  - electron-winstaller
   - esbuild
+  - phantomjs-prebuilt
+  - ssh2
 
 onlyBuiltDependencies:
   - electron
+
+# electron-builder 26.15+ 的 electronGet 用到 ElectronDownloadCacheMode（@electron/get 3.1.0 才有），
+# 锁文件解析到 3.0.0 会在打包时崩溃：Cannot read properties of undefined (reading 'ReadWrite')
+overrides:
+  '@electron/get@^3.0.0': ^3.1.0
