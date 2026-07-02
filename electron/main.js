@@ -54,6 +54,26 @@ if (isDev) {
 let mainWindow = null
 let networkManager = null
 
+// 以分离模式启动进程；成功 spawn 返回 true，失败返回 false。
+// 关键：可执行文件不存在（ENOENT）时 spawn 不会同步抛错，而是异步 emit 'error' 事件，
+// 不监听该事件会直接变成主进程 Uncaught Exception 弹窗（try/catch 捕获不到）
+function spawnDetached(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: 'ignore'
+    })
+    child.once('spawn', () => {
+      child.unref()
+      resolve(true)
+    })
+    child.once('error', (err) => {
+      console.warn(`Failed to launch ${command}: ${err.message}`)
+      resolve(false)
+    })
+  })
+}
+
 /**
  * 打开SSH连接。始终返回结果对象（不抛异常）：
  * 失败时带 code + params 供渲染进程 i18n 映射（errors.* 键），message 为兜底
@@ -61,70 +81,36 @@ let networkManager = null
  */
 async function openSSHConnection(hostName) {
   const platform = os.platform()
-  
+
   try {
+    // 各平台按优先级排列的候选终端，逐个尝试，全部失败返回 noTerminalFound
+    let candidates
     if (platform === 'win32') {
-      // Windows系统
-      try {
-        // 首先尝试Windows Terminal
-        const child = spawn('wt', ['ssh', hostName], { 
-          detached: true,
-          stdio: 'ignore'
-        })
-        child.unref()
-        console.log(`Opened SSH connection to ${hostName} using Windows Terminal`)
-      } catch (error) {
-        // 如果Windows Terminal不可用，使用cmd
-        const child = spawn('cmd', ['/c', 'start', 'cmd', '/k', `ssh ${hostName}`], {
-          detached: true,
-          stdio: 'ignore'
-        })
-        child.unref()
-        console.log(`Opened SSH connection to ${hostName} using CMD`)
-      }
-    } else if (platform === 'darwin') {
-      // macOS系统
-      const child = spawn('osascript', [
-        '-e', 
-        `tell application "Terminal" to do script "ssh ${hostName}"`
-      ], {
-        detached: true,
-        stdio: 'ignore'
-      })
-      child.unref()
-      console.log(`Opened SSH connection to ${hostName} using Terminal.app`)
-    } else {
-      // Linux系统
-      // 尝试常见的终端应用
-      const terminals = [
-        { cmd: 'gnome-terminal', args: ['--', 'ssh', hostName] },
-        { cmd: 'konsole', args: ['-e', 'ssh', hostName] },
-        { cmd: 'xterm', args: ['-e', `ssh ${hostName}`] },
-        { cmd: 'x-terminal-emulator', args: ['-e', `ssh ${hostName}`] }
+      // wt（Windows Terminal）是商店应用的用户级别名，目标机器可能没有 → 回退经典 cmd
+      candidates = [
+        { name: 'Windows Terminal', cmd: 'wt', args: ['ssh', hostName] },
+        { name: 'CMD', cmd: 'cmd', args: ['/c', 'start', 'cmd', '/k', `ssh ${hostName}`] }
       ]
-      
-      let success = false
-      for (const terminal of terminals) {
-        try {
-          const child = spawn(terminal.cmd, terminal.args, {
-            detached: true,
-            stdio: 'ignore'
-          })
-          child.unref()
-          console.log(`Opened SSH connection to ${hostName} using ${terminal.cmd}`)
-          success = true
-          break
-        } catch (error) {
-          continue
-        }
-      }
-      
-      if (!success) {
-        return { success: false, code: 'noTerminalFound', params: {}, message: 'No suitable terminal application found' }
-      }
+    } else if (platform === 'darwin') {
+      candidates = [
+        { name: 'Terminal.app', cmd: 'osascript', args: ['-e', `tell application "Terminal" to do script "ssh ${hostName}"`] }
+      ]
+    } else {
+      candidates = [
+        { name: 'gnome-terminal', cmd: 'gnome-terminal', args: ['--', 'ssh', hostName] },
+        { name: 'konsole', cmd: 'konsole', args: ['-e', 'ssh', hostName] },
+        { name: 'xterm', cmd: 'xterm', args: ['-e', `ssh ${hostName}`] },
+        { name: 'x-terminal-emulator', cmd: 'x-terminal-emulator', args: ['-e', `ssh ${hostName}`] }
+      ]
     }
 
-    return { success: true, message: `SSH connection opened for ${hostName}` }
+    for (const candidate of candidates) {
+      if (await spawnDetached(candidate.cmd, candidate.args)) {
+        console.log(`Opened SSH connection to ${hostName} using ${candidate.name}`)
+        return { success: true, message: `SSH connection opened for ${hostName}` }
+      }
+    }
+    return { success: false, code: 'noTerminalFound', params: {}, message: 'No suitable terminal application found' }
   } catch (error) {
     console.error('Failed to open SSH connection:', error)
     return { success: false, code: 'generic', params: { detail: error.message }, message: error.message }
