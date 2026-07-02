@@ -1,5 +1,5 @@
 <script setup>
-  import { ref, onMounted, onUnmounted, computed } from 'vue'
+  import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
   import { useI18n } from 'vue-i18n'
   import draggable from 'vuedraggable'
   import HostEditor from './components/HostEditor.vue'
@@ -22,6 +22,11 @@
   const editingHost = ref(null)
   const loading = ref(false)
   const error = ref('')
+
+  // 新卡片入场动画状态
+  const hostListRef = ref(null) // draggable 组件引用，用于查询卡片 DOM 做 FLIP 动画
+  const justAddedHost = ref('') // 刚新增/复制/导入的 Host 名称，驱动入场高亮
+  let justAddedTimer = null
 
   // 确认对话框状态
   const confirmDialog = ref({
@@ -73,9 +78,10 @@
     return result
   })
 
-  async function loadHosts() {
+  // silent: 静默刷新，不切换 loading（避免卸载列表打断入场动画）
+  async function loadHosts({ silent = false } = {}) {
     try {
-      loading.value = true
+      if (!silent) loading.value = true
       if (window.sshApi) {
         hosts.value = await window.sshApi.getAll()
         error.value = ''
@@ -106,14 +112,11 @@
       const isNew = !data.originalHost
       await window.sshApi.saveHost(data)
       isEditorOpen.value = false
-      await loadHosts()
-      // 新增节点在配置文件里仍是末尾追加，仅界面上移到列表最前便于查看
       if (isNew) {
-        const idx = hosts.value.findIndex(h => h.Host === data.Host)
-        if (idx > 0) {
-          const [added] = hosts.value.splice(idx, 1)
-          hosts.value.unshift(added)
-        }
+        // 新增在文件末尾追加，getAll 反转后位于列表首位，重启后顺序一致
+        await refreshWithSpawn(data.Host)
+      } else {
+        await loadHosts()
       }
     } catch (e) {
       showAlert(t('app.saveFailed'), e.message)
@@ -147,8 +150,9 @@
       onConfirm: async () => {
         confirmDialog.value.isOpen = false
         try {
-          await window.sshApi.copyHost(hostName)
-          await loadHosts()
+          const result = await window.sshApi.copyHost(hostName)
+          // 副本在文件中紧随原配置，展示上位于原卡片上方，滚动过去并高亮
+          await refreshWithSpawn(result?.newHostName)
         } catch (e) {
           showAlert(t('app.copyFailed'), e.message)
         }
@@ -180,7 +184,7 @@
     alertDialog.value.isOpen = false
   }
 
-  // 拖拽结束后保存新顺序
+  // 拖拽结束后保存新顺序（传展示顺序，主进程按其反转写入文件）
   async function handleDragEnd() {
     try {
       const hostNames = hosts.value.map(h => h.Host)
@@ -188,6 +192,75 @@
     } catch (e) {
       console.error('Failed to save order:', e)
     }
+  }
+
+  // 是否偏好减少动态效果（跟随系统设置）
+  function prefersReducedMotion() {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  }
+
+  // 采集各卡片相对列表容器的位置（相对坐标不受页面滚动影响）
+  function collectCardRects() {
+    const rects = new Map()
+    const root = hostListRef.value?.$el
+    if (!root) return rects
+    const rootRect = root.getBoundingClientRect()
+    for (const el of root.querySelectorAll('[data-host]')) {
+      const rect = el.getBoundingClientRect()
+      // v-show 隐藏（被搜索过滤）的卡片没有尺寸，跳过
+      if (!rect.width && !rect.height) continue
+      rects.set(el.dataset.host, { left: rect.left - rootRect.left, top: rect.top - rootRect.top })
+    }
+    return rects
+  }
+
+  // FLIP：让被新卡片挤开的卡片从旧位置平滑滑到新位置
+  function playMoveAnimation(beforeRects) {
+    const root = hostListRef.value?.$el
+    if (!root || prefersReducedMotion()) return
+    const rootRect = root.getBoundingClientRect()
+    const moved = []
+    for (const el of root.querySelectorAll('[data-host]')) {
+      const prev = beforeRects.get(el.dataset.host)
+      if (!prev) continue // 新卡片走入场动画，不参与位移
+      const rect = el.getBoundingClientRect()
+      const dx = prev.left - (rect.left - rootRect.left)
+      const dy = prev.top - (rect.top - rootRect.top)
+      if (!dx && !dy) continue
+      el.style.transition = 'none'
+      el.style.transform = `translate(${dx}px, ${dy}px)`
+      moved.push(el)
+    }
+    if (!moved.length) return
+    // 强制 reflow 让起始位移生效，下一帧再释放回原位
+    root.getBoundingClientRect()
+    requestAnimationFrame(() => {
+      for (const el of moved) {
+        el.style.transition = 'transform 0.6s cubic-bezier(0.22, 1, 0.36, 1)'
+        el.style.transform = ''
+      }
+      setTimeout(() => {
+        for (const el of moved) el.style.transition = ''
+      }, 650)
+    })
+  }
+
+  // 新增/复制/导入成功后的刷新：静默拉取 + 新卡片约 2s 入场动画 + 其余卡片 FLIP 让位
+  async function refreshWithSpawn(hostName) {
+    searchQuery.value = ''
+    const beforeRects = collectCardRects()
+    await loadHosts({ silent: true })
+    clearTimeout(justAddedTimer)
+    justAddedHost.value = hostName || ''
+    await nextTick()
+    playMoveAnimation(beforeRects)
+    // 滚动到新卡片（新增在列表首位，复制在原卡片旁边）
+    const root = hostListRef.value?.$el
+    if (root && justAddedHost.value) {
+      const target = [...root.querySelectorAll('[data-host]')].find(el => el.dataset.host === justAddedHost.value)
+      target?.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'nearest' })
+    }
+    justAddedTimer = setTimeout(() => { justAddedHost.value = '' }, 2200)
   }
 
   // 自动更新相关函数
@@ -277,8 +350,8 @@
   // 处理节点导入成功
   function handleNodeImported(data) {
     showAlert(t('app.importSuccessTitle'), t('app.importSuccessMessage', { name: data.importedNode.Host }), 'success')
-    // 重新加载本地节点列表
-    loadHosts()
+    // 导入同样追加在文件末尾 → 列表首位，带入场动画刷新
+    refreshWithSpawn(data.importedNode.Host)
   }
 
   // 处理分享功能被启用
@@ -342,6 +415,7 @@
       unsubscribeSharingEnabled()
       unsubscribeSharingEnabled = null
     }
+    clearTimeout(justAddedTimer)
 
   })
 
@@ -487,12 +561,13 @@
         <p class="text-red-600 font-medium">{{ error }}</p>
       </div>
 
-      <draggable v-else v-model="hosts" item-key="Host" handle=".drag-handle" :disabled="!isDragEnabled"
+      <draggable v-else ref="hostListRef" v-model="hosts" item-key="Host" handle=".drag-handle" :disabled="!isDragEnabled"
         ghost-class="opacity-40" chosen-class="shadow-lg" drag-class="shadow-2xl" animation="200"
         class="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 lg:gap-2 xl:gap-1" @end="handleDragEnd">
         <template #item="{ element: host }">
-          <div v-show="!searchQuery || filteredHosts.some(h => h.Host === host.Host)"
-            class="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition group flex">
+          <div v-show="!searchQuery || filteredHosts.some(h => h.Host === host.Host)" :data-host="host.Host"
+            class="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition group flex"
+            :class="{ 'host-card-new': host.Host === justAddedHost }">
             <!-- 拖拽手柄 -->
             <div v-if="isDragEnabled"
               class="drag-handle w-6 shrink-0 flex items-center justify-center rounded-l-xl bg-gray-50 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing hover:bg-gray-100">
@@ -682,5 +757,79 @@
   .dropdown-leave-to {
     opacity: 0;
     transform: translateY(-10px) scale(0.95);
+  }
+
+  /* 新增/复制/导入节点的入场动画：下落弹入 + 光环两次脉冲后淡出，总时长约 2s */
+  .host-card-new {
+    position: relative;
+    /* 光环与投影盖过相邻卡片，窄间距栅格（xl:gap-1）下不被遮挡 */
+    z-index: 1;
+    animation:
+      host-spawn 0.9s cubic-bezier(0.22, 1, 0.36, 1) both,
+      host-glow 2s ease-out both;
+  }
+
+  @keyframes host-spawn {
+    0% {
+      opacity: 0;
+      transform: translateY(-28px) scale(0.92);
+    }
+
+    55% {
+      opacity: 1;
+      transform: translateY(4px) scale(1.015);
+    }
+
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* border/background 在 0%~52% 之间保持淡蓝，之后过渡回原样式；
+     光环 box-shadow 在 12% 与 52% 两次达到峰值形成脉冲 */
+  @keyframes host-glow {
+    0% {
+      border-color: #93c5fd;
+      background-color: #eff6ff;
+      box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    }
+
+    12% {
+      box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.22), 0 18px 44px -14px rgba(59, 130, 246, 0.5);
+    }
+
+    32% {
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1), 0 10px 28px -14px rgba(59, 130, 246, 0.32);
+    }
+
+    52% {
+      border-color: #93c5fd;
+      background-color: #eff6ff;
+      box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.16), 0 14px 36px -14px rgba(59, 130, 246, 0.4);
+    }
+
+    100% {
+      border-color: #f3f4f6;
+      background-color: #ffffff;
+      box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    }
+  }
+
+  /* 系统开启“减少动态效果”时只保留短暂淡入 */
+  @media (prefers-reduced-motion: reduce) {
+    .host-card-new {
+      animation: host-fade 0.3s ease-out both;
+    }
+  }
+
+  @keyframes host-fade {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
   }
 </style>

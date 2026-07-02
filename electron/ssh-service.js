@@ -115,7 +115,10 @@ export async function getAll() {
     }
 
     console.log('Parsed hosts count:', hosts.length)
-    return hosts
+    // 界面按“最新在前”展示：返回顺序与文件内 Host 顺序相反。
+    // 新增/复制/导入都是往文件末尾方向写入，反转后自然出现在列表前部，
+    // 与 reorderHosts 落盘前的反转配对，保证重启后展示顺序一致
+    return hosts.reverse()
   } catch (err) {
     console.error('Error reading/parsing config:', err)
     return []
@@ -187,7 +190,8 @@ export async function deleteHost(host) {
   return true
 }
 
-// 重新排序 hosts，按照传入的 hostNames 数组顺序重写配置文件
+// 重新排序 hosts，重写配置文件。hostNames 为界面展示顺序（最新在前），
+// 文件内按其反转顺序写入，与 getAll 的反转约定配对
 export async function reorderHosts(hostNames) {
   await ensureConfigExists()
   const content = await fs.readFile(CONFIG_PATH, 'utf8')
@@ -205,9 +209,9 @@ export async function reorderHosts(hostNames) {
     }
   }
 
-  // 按 hostNames 数组的顺序重新排列
+  // 按展示顺序的反转（即文件顺序）重新排列
   const reorderedSections = []
-  for (const hostName of hostNames) {
+  for (const hostName of [...hostNames].reverse()) {
     const section = hostSections.find(s => hostValueToString(s.value) === hostName)
     if (section) {
       reorderedSections.push(section)

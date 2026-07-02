@@ -60,6 +60,11 @@ AST so user formatting/comments survive round-trips. Key details to respect:
 - New/copied host blocks are built by string concatenation and re-parsed (rather
   than the library's `append`) to control indentation; deletes run a regex pass to
   collapse excess blank lines. Preserve this approach when editing write paths.
+- **UI order is the reverse of file order** ("newest first"): `getAll()` reverses
+  the parsed Host list before returning, and `reorderHosts()` takes display order
+  and reverses it back before rewriting the file. New/copied/imported hosts still
+  append toward the file end, which lands them at the top of the UI. Keep these
+  two reversals paired.
 
 ### Copy ID (`electron/services/CopyIdService.js`)
 
